@@ -1,0 +1,186 @@
+<?php
+
+namespace App\Http\Controllers\V1\Admin\Server;
+
+use App\Http\Controllers\Controller;
+use App\Models\ServerVless;
+use Illuminate\Http\Request;
+use ParagonIE_Sodium_Compat as SodiumCompat;
+use App\Utils\Helper;
+
+class VlessController extends Controller
+{
+    public function save(Request $request)
+    {
+        $metadata = $this->validateServerSaveRequest($request);
+        $params = $request->validate([
+            'group_id' => 'required',
+            'route_id' => 'nullable|array',
+            'name' => 'required',
+            'parent_id' => 'nullable|integer',
+            'host' => 'required',
+            'port' => 'required',
+            'server_port' => 'required',
+            'tls' => 'required|in:0,1,2',
+            'tls_settings' => 'nullable|array',
+            'flow' => 'nullable|in:xtls-rprx-vision',
+            'network' => 'required',
+            'network_settings' => 'nullable|array',
+            'encryption' => 'nullable',
+            'encryption_settings' => 'nullable|array',
+            'tags' => 'nullable|array',
+            'rate' => 'required',
+            'show' => 'nullable|in:0,1',
+            'sort' => 'nullable'
+        ]);
+        $params = $this->serverSaveParameters($params);
+
+        if (isset($params['tls']) && (int)$params['tls'] === 2) {
+            $params['tls_settings'] = Helper::normalizeRealityKeyPair($params['tls_settings'] ?? []);
+            if (empty($params['tls_settings']['short_id'])) {
+                $params['tls_settings']['short_id'] = substr(sha1($params['tls_settings']['private_key']), 0, 8);
+            }
+            if (empty($params['tls_settings']['server_port'])) {
+                $params['tls_settings']['server_port'] = "443";
+            } else {
+                $params['tls_settings']['server_port'] = (string) $params['tls_settings']['server_port'];
+            }
+        }
+        if ($params['network'] != 'tcp') {
+            $params['flow'] = null;
+        }
+        if ($params['network'] == 'xhttp' && isset($params['network_settings'])) {
+            $ns = $params['network_settings'];
+            if (isset($ns['extra']) && is_array($ns['extra'])) {
+                $extra = $ns['extra'];
+                if (isset($extra['noGRPCHeader'])) {
+                    $extra['noGRPCHeader'] = filter_var($extra['noGRPCHeader'], FILTER_VALIDATE_BOOLEAN);
+                }
+                if (isset($extra['noSSEHeader'])) {
+                    $extra['noSSEHeader'] = filter_var($extra['noSSEHeader'], FILTER_VALIDATE_BOOLEAN);
+                }
+                if (isset($extra['scMaxBufferedPosts'])) {
+                    $extra['scMaxBufferedPosts'] = (int)$extra['scMaxBufferedPosts'];
+                }
+                if (isset($extra['xmux']) && is_array($extra['xmux'])) {
+                    $xmux = $extra['xmux'];
+                    if (isset($xmux['hKeepAlivePeriod'])) {
+                        $xmux['hKeepAlivePeriod'] = (int)$xmux['hKeepAlivePeriod'];
+                    }
+                    $extra['xmux'] = $xmux;
+                }
+                if (isset($extra['downloadSettings']) && is_array($extra['downloadSettings'])) {
+                    $downloadSettings = $extra['downloadSettings'];
+                    if (isset($downloadSettings['port'])) {
+                        $downloadSettings['port'] = (int)$downloadSettings['port'];
+                    }
+                    $extra['downloadSettings'] = $downloadSettings;
+                }
+                $ns['extra'] = $extra;
+            }
+            $params['network_settings'] = $ns;
+        }
+        if (isset($params['encryption']) && $params['encryption'] == 'mlkem768x25519plus') {
+            $keyPair = SodiumCompat::crypto_box_keypair();
+            $params['encryption_settings'] = $params['encryption_settings'] ?? [];
+            if (isset($params['encryption_settings']['rtt'])) {
+                if ($params['encryption_settings']['rtt'] == '1rtt') {
+                    $params['encryption_settings']['ticket'] = '0s';
+                }
+            }
+            if (empty($params['encryption_settings']['private_key'])) {
+                $params['encryption_settings']['private_key'] = Helper::base64EncodeUrlSafe(SodiumCompat::crypto_box_secretkey($keyPair));
+            }
+            if (empty($params['encryption_settings']['password'])) {
+                $params['encryption_settings']['password'] = Helper::base64EncodeUrlSafe(SodiumCompat::crypto_box_publickey($keyPair));
+            }
+        }
+        if ($request->input('id')) {
+            $server = ServerVless::find($request->input('id'));
+            if (!$server) {
+                abort(500, '服务器不存在');
+            }
+            try {
+                $server = $this->saveServerWithMetadata($server, $params, 'vless', $metadata);
+            } catch (\Throwable $e) {
+                \Log::error($e);
+                abort(500, '保存失败');
+            }
+            return response([
+                'data' => true
+            ]);
+        }
+
+        try {
+            $server = $this->saveServerWithMetadata(new ServerVless(), $params, 'vless', $metadata);
+        } catch (\Throwable $e) {
+            \Log::error($e);
+            abort(500, '创建失败');
+        }
+
+        return response([
+            'data' => true
+        ]);
+    }
+
+    public function drop(Request $request)
+    {
+        $request->validate(['id' => 'required|integer|min:1']);
+        if ($request->input('id')) {
+            $server = ServerVless::find($request->input('id'));
+            if (!$server) {
+                abort(500, '节点ID不存在');
+            }
+        }
+        try {
+            $this->deleteServerWithMetadata($server, 'vless');
+            $deleted = true;
+        } catch (\Throwable $e) {
+            \Log::error($e);
+            abort(500, '删除失败');
+        }
+        return response(['data' => $deleted]);
+    }
+
+    public function update(Request $request)
+    {
+        $params = $request->validate([
+            'show' => 'nullable|in:0,1',
+        ]);
+
+        $server = ServerVless::find($request->input('id'));
+
+        if (!$server) {
+            abort(500, '该服务器不存在');
+        }
+        try {
+            $server = $this->saveServerWithMetadata($server, $params, 'vless', null);
+        } catch (\Throwable $e) {
+            \Log::error($e);
+            abort(500, '保存失败');
+        }
+
+        return response([
+            'data' => true
+        ]);
+    }
+
+    public function copy(Request $request)
+    {
+        $request->validate(['id' => 'required|integer|min:1']);
+        $server = ServerVless::find($request->input('id'));
+        if (!$server) {
+            abort(500, '服务器不存在');
+        }
+        try {
+            $copiedServer = $this->copyServerWithMetadata($server, 'vless', ['show' => 0], true);
+        } catch (\Throwable $e) {
+            \Log::error($e);
+            abort(500, '复制失败');
+        }
+
+        return response([
+            'data' => true
+        ]);
+    }
+}

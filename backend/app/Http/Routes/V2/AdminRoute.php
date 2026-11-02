@@ -1,0 +1,351 @@
+<?php
+namespace App\Http\Routes\V2;
+
+use App\Http\Controllers\V2\Admin\ConfigController;
+use App\Http\Controllers\V2\Admin\MailTemplateController;
+use App\Http\Controllers\V2\Admin\PlanController;
+use App\Http\Controllers\V2\Admin\Server\GroupController;
+use App\Http\Controllers\V2\Admin\Server\RouteController;
+use App\Http\Controllers\V2\Admin\Server\ManageController;
+use App\Http\Controllers\V2\Admin\Server\MachineController;
+use App\Http\Controllers\V2\Admin\OrderController;
+use App\Http\Controllers\V2\Admin\UserController;
+use App\Http\Controllers\V2\Admin\StatController;
+use App\Http\Controllers\V2\Admin\NoticeController;
+use App\Http\Controllers\V2\Admin\TicketController;
+use App\Http\Controllers\V2\Admin\CouponController;
+use App\Http\Controllers\V2\Admin\GiftCardController;
+use App\Http\Controllers\V2\Admin\KnowledgeController;
+use App\Http\Controllers\V2\Admin\PaymentController;
+use App\Http\Controllers\V2\Admin\SystemController;
+use App\Http\Controllers\V2\Admin\ThemeController;
+use App\Http\Controllers\V2\Admin\TrafficResetController;
+use App\Http\Controllers\V2\Admin\BackupController;
+use Illuminate\Contracts\Routing\Registrar;
+
+class AdminRoute
+{
+    public function map(Registrar $router)
+    {
+        $router->group([
+            'prefix' => config('v2board.secure_path', config('v2board.frontend_admin_path', hash('crc32b', config('app.key')))),
+            'middleware' => ['admin', 'log'],
+        ], function ($router) {
+            $router->get('agent/settings', [\App\Http\Controllers\V2\Admin\AgentController::class, 'settings']);
+            $router->post('agent/settings', [\App\Http\Controllers\V2\Admin\AgentController::class, 'save']);
+            $router->post('agent/chat', [\App\Http\Controllers\V2\Admin\AgentController::class, 'chat'])->middleware('throttle:6,1');
+            $router->post('agent/start', [\App\Http\Controllers\V2\Admin\AgentController::class, 'start'])->middleware('throttle:6,1');
+            $router->get('agent/run', [\App\Http\Controllers\V2\Admin\AgentController::class, 'run']);
+            $router->post('agent/run-cancel', [\App\Http\Controllers\V2\Admin\AgentController::class, 'cancelRun']);
+            $router->get('agent/conversation', [\App\Http\Controllers\V2\Admin\AgentController::class, 'conversation']);
+            $router->post('agent/confirm', [\App\Http\Controllers\V2\Admin\AgentController::class, 'confirm']);
+            $router->get('model-relay/status', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'status']);
+            $router->get('model-relay/usage', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'usage']);
+            $router->get('model-relay/quality', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'quality']);
+            $router->get('model-relay/quality-detail', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'qualityDetail']);
+            $router->post('model-relay/quality-settings', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'qualitySave']);
+            $router->post('model-relay/quality-run', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'qualityRun'])->middleware('throttle:3,1');
+            $router->post('model-relay/quality-baseline', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'qualityBaseline']);
+            $router->post('model-relay/upstream', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'upstream']);
+            $router->post('model-relay/test', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'test'])->middleware('throttle:6,1');
+            $router->post('model-relay/key', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'saveKey']);
+            $router->post('model-relay/key-action', [\App\Http\Controllers\V2\Admin\ModelRelayController::class, 'keyAction']);
+            $router->post('subscription-entry/preview', [\App\Http\Controllers\V2\Admin\SubscriptionEntryController::class, 'preview']);
+            $router->post('subscription-entry/apply', [\App\Http\Controllers\V2\Admin\SubscriptionEntryController::class, 'apply']);
+            // Config
+            $router->get('payment-receipt/fetch', [\App\Http\Controllers\V2\Admin\PaymentReceiptController::class, 'fetch']);
+            $router->get('payment-receipt/download', [\App\Http\Controllers\V2\Admin\PaymentReceiptController::class, 'download']);
+            $router->get('stat/domainTraffic', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'index']);
+            $router->get('stat/domainTraffic/collection', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'collection']);
+            $router->post('stat/domainTraffic/collection', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'setCollection']);
+            $router->get('stat/domainTraffic/history', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'history']);
+            $router->get('stat/domainTraffic/block-options', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'blockOptions']);
+            $router->post('stat/domainTraffic/block', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'block']);
+            $router->post('stat/domainTraffic/settings', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'settings']);
+            $router->post('stat/domainTraffic/analyse', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'analyse']);
+            $router->post('stat/domainTraffic/apply', [\App\Http\Controllers\V2\Admin\DomainTrafficController::class, 'apply']);
+            $router->group([
+                'prefix' => 'config'
+            ], function ($router) {
+                $router->get('/fetch', [ConfigController::class, 'fetch']);
+                $router->post('/save', [ConfigController::class, 'save']);
+                $router->get('/getEmailTemplate', [ConfigController::class, 'getEmailTemplate']);
+                $router->get('/getThemeTemplate', [ConfigController::class, 'getThemeTemplate']);
+                $router->post('/setTelegramWebhook', [ConfigController::class, 'setTelegramWebhook']);
+                $router->post('/testTelegram', [ConfigController::class, 'testTelegram']);
+                $router->post('/testSendMail', [ConfigController::class, 'testSendMail']);
+            });
+            $router->get('/backup/status', [BackupController::class, 'status']);
+            $router->post('/backup/run', [BackupController::class, 'run']);
+            $router->get('/backup/google/status', [BackupController::class, 'googleStatus']);
+            $router->post('/backup/google/configure', [BackupController::class, 'googleConfigure']);
+            $router->post('/backup/google/authorize', [BackupController::class, 'googleAuthorize']);
+            $router->post('/backup/google/test', [BackupController::class, 'googleTest']);
+            $router->post('/backup/google/disconnect', [BackupController::class, 'googleDisconnect']);
+
+            // Mail Templates
+            $router->group([
+                'prefix' => 'mail/template'
+            ], function ($router) {
+                $router->get('/list', [MailTemplateController::class, 'list']);
+                $router->get('/get', [MailTemplateController::class, 'get']);
+                $router->post('/save', [MailTemplateController::class, 'save']);
+                $router->post('/reset', [MailTemplateController::class, 'reset']);
+                $router->post('/test', [MailTemplateController::class, 'test']);
+            });
+
+            // Plan
+            $router->group([
+                'prefix' => 'plan'
+            ], function ($router) {
+                $router->get('/fetch', [PlanController::class, 'fetch']);
+                $router->post('/save', [PlanController::class, 'save']);
+                $router->post('/drop', [PlanController::class, 'drop']);
+                $router->post('/update', [PlanController::class, 'update']);
+                $router->post('/sort', [PlanController::class, 'sort']);
+            });
+
+            // Server
+            $router->group([
+                'prefix' => 'server/group'
+            ], function ($router) {
+                $router->get('/fetch', [GroupController::class, 'fetch']);
+                $router->post('/save', [GroupController::class, 'save']);
+                $router->post('/drop', [GroupController::class, 'drop']);
+            });
+            $router->group([
+                'prefix' => 'server/route'
+            ], function ($router) {
+                $router->get('/fetch', [RouteController::class, 'fetch']);
+                $router->post('/save', [RouteController::class, 'save']);
+                $router->post('/drop', [RouteController::class, 'drop']);
+            });
+            // 节点管理接口
+            $router->group([
+                'prefix' => 'server/manage'
+            ], function ($router) {
+                $router->get('/getNodes', [ManageController::class, 'getNodes']);
+                $router->post('/update', [ManageController::class, 'update']);
+                $router->post('/save', [ManageController::class, 'save']);
+                $router->post('/drop', [ManageController::class, 'drop']);
+                $router->post('/copy', [ManageController::class, 'copy']);
+                $router->post('/sort', [ManageController::class, 'sort']);
+                $router->post('/batchDelete', [ManageController::class, 'batchDelete']);
+                $router->post('/batchUpdate', [ManageController::class, 'batchUpdate']);
+                $router->post('/resetTraffic', [ManageController::class, 'resetTraffic']);
+                $router->post('/batchResetTraffic', [ManageController::class, 'batchResetTraffic']);
+                $router->get('/generateEchKey', [ManageController::class, 'generateEchKey']);
+                $router->get('/connectivityTestResult', [ManageController::class, 'connectivityTestResult']);
+            });
+
+            // 机器管理接口
+            $router->group([
+                'prefix' => 'server/machine'
+            ], function ($router) {
+                $router->get('/fetch', [MachineController::class, 'fetch']);
+                $router->post('/save', [MachineController::class, 'save']);
+                $router->post('/drop', [MachineController::class, 'drop']);
+                $router->post('/resetToken', [MachineController::class, 'resetToken']);
+                $router->get('/getToken', [MachineController::class, 'getToken']);
+                $router->get('/installCommand', [MachineController::class, 'installCommand']);
+                $router->get('/nodes', [MachineController::class, 'nodes']);
+                $router->get('/history', [MachineController::class, 'history']);
+            });
+
+            // Order
+            $router->group([
+                'prefix' => 'order'
+            ], function ($router) {
+                $router->any('/fetch', [OrderController::class, 'fetch']);
+                $router->post('/update', [OrderController::class, 'update']);
+                $router->post('/assign', [OrderController::class, 'assign']);
+                $router->post('/paid', [OrderController::class, 'paid']);
+                $router->post('/cancel', [OrderController::class, 'cancel']);
+                $router->post('/detail', [OrderController::class, 'detail']);
+            });
+
+            // User
+            $router->group([
+                'prefix' => 'user'
+            ], function ($router) {
+                $router->any('/fetch', [UserController::class, 'fetch']);
+                $router->post('/update', [UserController::class, 'update']);
+                $router->get('/getUserInfoById', [UserController::class, 'getUserInfoById']);
+                $router->post('/getQuickLoginUrl', [UserController::class, 'getQuickLoginUrl']);
+                $router->post('/generate', [UserController::class, 'generate']);
+                $router->get('/generation-status', [UserController::class, 'generationStatus']);
+                $router->get('/generation-download', [UserController::class, 'generationDownload']);
+                $router->post('/dumpCSV', [UserController::class, 'dumpCSV']);
+                $router->post('/sendMail', [UserController::class, 'sendMail']);
+                $router->post('/ban', [UserController::class, 'ban']);
+                $router->post('/resetSecret', [UserController::class, 'resetSecret']);
+                $router->post('/setInviteUser', [UserController::class, 'setInviteUser']);
+                $router->post('/destroy', [UserController::class, 'destroy']);
+            });
+
+            // Stat
+            $router->group([
+                'prefix' => 'stat'
+            ], function ($router) {
+                $router->get('/getOverride', [StatController::class, 'getOverride']);
+                $router->get('/getStats', [StatController::class, 'getStats']);
+                $router->get('/getDetails', [StatController::class, 'getDetails']);
+                $router->get('/getServerLastRank', [StatController::class, 'getServerLastRank']);
+                $router->get('/getServerYesterdayRank', [StatController::class, 'getServerYesterdayRank']);
+                $router->get('/getOrder', [StatController::class, 'getOrder']);
+                $router->any('/getStatUser', [StatController::class, 'getStatUser']);
+                $router->get('/getUserNodeTraffic', [StatController::class, 'getUserNodeTraffic']);
+                $router->get('/getUserNodeTrafficSeries', [StatController::class, 'getUserNodeTrafficSeries']);
+                $router->get('/getNodeUserTraffic', [StatController::class, 'getNodeUserTraffic']);
+                $router->get('/getNodeTrafficSeries', [StatController::class, 'getNodeTrafficSeries']);
+                $router->get('/getRanking', [StatController::class, 'getRanking']);
+                $router->get('/getStatRecord', [StatController::class, 'getStatRecord']);
+                $router->get('/getTrafficRank', [StatController::class, 'getTrafficRank']);
+                $router->get('/getTrafficHistory', [StatController::class, 'getTrafficHistory']);
+            });
+
+            // Notice
+            $router->group([
+                'prefix' => 'notice'
+            ], function ($router) {
+                $router->get('/fetch', [NoticeController::class, 'fetch']);
+                $router->post('/save', [NoticeController::class, 'save']);
+                $router->post('/update', [NoticeController::class, 'save']);
+                $router->post('/drop', [NoticeController::class, 'drop']);
+                $router->post('/show', [NoticeController::class, 'show']);
+                $router->post('/sort', [NoticeController::class, 'sort']);
+            });
+
+            // Ticket
+            $router->group([
+                'prefix' => 'ticket'
+            ], function ($router) {
+                $router->any('/fetch', [TicketController::class, 'fetch']);
+                $router->post('/reply', [TicketController::class, 'reply']);
+                $router->post('/close', [TicketController::class, 'close']);
+            });
+
+            // Coupon
+            $router->group([
+                'prefix' => 'coupon'
+            ], function ($router) {
+                $router->any('/fetch', [CouponController::class, 'fetch']);
+                $router->post('/generate', [CouponController::class, 'generate']);
+                $router->post('/drop', [CouponController::class, 'drop']);
+                $router->post('/show', [CouponController::class, 'show']);
+                $router->post('/update', [CouponController::class, 'update']);
+            });
+
+            // Gift Card
+            $router->group([
+                'prefix' => 'gift-card'
+            ], function ($router) {
+                // Template management
+                $router->any('/templates', [GiftCardController::class, 'templates']);
+                $router->post('/create-template', [GiftCardController::class, 'createTemplate']);
+                $router->post('/update-template', [GiftCardController::class, 'updateTemplate']);
+                $router->post('/delete-template', [GiftCardController::class, 'deleteTemplate']);
+
+                // Code management
+                $router->post('/generate-codes', [GiftCardController::class, 'generateCodes']);
+                $router->any('/codes', [GiftCardController::class, 'codes']);
+                $router->post('/toggle-code', [GiftCardController::class, 'toggleCode']);
+                $router->get('/export-codes', [GiftCardController::class, 'exportCodes']);
+                $router->post('/update-code', [GiftCardController::class, 'updateCode']);
+                $router->post('/delete-code', [GiftCardController::class, 'deleteCode']);
+
+                // Usage records
+                $router->any('/usages', [GiftCardController::class, 'usages']);
+
+                // Statistics
+                $router->any('/statistics', [GiftCardController::class, 'statistics']);
+                $router->get('/types', [GiftCardController::class, 'types']);
+            });
+
+            // Knowledge
+            $router->group([
+                'prefix' => 'knowledge'
+            ], function ($router) {
+                $router->get('/fetch', [KnowledgeController::class, 'fetch']);
+                $router->get('/getCategory', [KnowledgeController::class, 'getCategory']);
+                $router->post('/save', [KnowledgeController::class, 'save']);
+                $router->post('/show', [KnowledgeController::class, 'show']);
+                $router->post('/drop', [KnowledgeController::class, 'drop']);
+                $router->post('/sort', [KnowledgeController::class, 'sort']);
+            });
+
+            // Payment  
+            $router->group([
+                'prefix' => 'payment'
+            ], function ($router) {
+                $router->get('/fetch', [PaymentController::class, 'fetch']);
+                $router->get('/getPaymentMethods', [PaymentController::class, 'getPaymentMethods']);
+                $router->post('/getPaymentForm', [PaymentController::class, 'getPaymentForm']);
+                $router->post('/save', [PaymentController::class, 'save']);
+                $router->post('/drop', [PaymentController::class, 'drop']);
+                $router->post('/show', [PaymentController::class, 'show']);
+                $router->post('/sort', [PaymentController::class, 'sort']);
+            });
+
+            // System
+            $router->group([
+                'prefix' => 'system'
+            ], function ($router) {
+                $router->get('/getSystemStatus', [SystemController::class, 'getSystemStatus']);
+                $router->get('/getQueueStats', [SystemController::class, 'getQueueStats']);
+                $router->get('/getQueueWorkload', [SystemController::class, 'getQueueWorkload']);
+                $router->get('/getQueueMasters', '\\Laravel\\Horizon\\Http\\Controllers\\MasterSupervisorController@index');
+                $router->get('/getHorizonFailedJobs', [SystemController::class, 'getHorizonFailedJobs']);
+                $router->get('/getHorizonJobs', [SystemController::class, 'getHorizonJobs']);
+                $router->any('/getAuditLog', [SystemController::class, 'getAuditLog']);
+            });
+
+            // Update
+            // $router->group([
+            //     'prefix' => 'update'
+            // ], function ($router) {
+            //     $router->get('/check', [UpdateController::class, 'checkUpdate']);
+            //     $router->post('/execute', [UpdateController::class, 'executeUpdate']);
+            // });
+
+            // Theme
+            $router->group([
+                'prefix' => 'theme'
+            ], function ($router) {
+                $router->get('/getThemes', [ThemeController::class, 'getThemes']);
+                $router->post('/upload', [ThemeController::class, 'upload']);
+                $router->post('/delete', [ThemeController::class, 'delete']);
+                $router->post('/saveThemeConfig', [ThemeController::class, 'saveThemeConfig']);
+                $router->post('/getThemeConfig', [ThemeController::class, 'getThemeConfig']);
+            });
+
+            // Plugin
+            $router->group([
+                'prefix' => 'plugin'
+            ], function ($router) {
+                $router->get('/types', [\App\Http\Controllers\V2\Admin\PluginController::class, 'types']);
+                $router->get('/getPlugins', [\App\Http\Controllers\V2\Admin\PluginController::class, 'index']);
+                $router->post('/upload', [\App\Http\Controllers\V2\Admin\PluginController::class, 'upload']);
+                $router->post('/delete', [\App\Http\Controllers\V2\Admin\PluginController::class, 'delete']);
+                $router->post('install', [\App\Http\Controllers\V2\Admin\PluginController::class, 'install']);
+                $router->post('uninstall', [\App\Http\Controllers\V2\Admin\PluginController::class, 'uninstall']);
+                $router->post('enable', [\App\Http\Controllers\V2\Admin\PluginController::class, 'enable']);
+                $router->post('disable', [\App\Http\Controllers\V2\Admin\PluginController::class, 'disable']);
+                $router->get('config', [\App\Http\Controllers\V2\Admin\PluginController::class, 'getConfig']);
+                $router->post('config', [\App\Http\Controllers\V2\Admin\PluginController::class, 'updateConfig']);
+                $router->post('upgrade', [\App\Http\Controllers\V2\Admin\PluginController::class, 'upgrade']);
+            });
+
+            // 流量重置管理
+            $router->group([
+                'prefix' => 'traffic-reset'
+            ], function ($router) {
+                $router->get('logs', [TrafficResetController::class, 'logs']);
+                $router->get('stats', [TrafficResetController::class, 'stats']);
+                $router->get('user/{userId}/history', [TrafficResetController::class, 'userHistory']);
+                $router->post('reset-user', [TrafficResetController::class, 'resetUser']);
+            });
+        });
+
+    }
+}

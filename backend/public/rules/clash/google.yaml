@@ -1,0 +1,18 @@
+payload:
+  - DOMAIN-SUFFIX,1e100.net
+  - DOMAIN-SUFFIX,g.co
+  - DOMAIN-SUFFIX,google.com
+  - DOMAIN-SUFFIX,googleapis.com
+  - DOMAIN-SUFFIX,gstatic.com
+  - DOMAIN-SUFFIX,gv2.com
+  - DOMAIN-SUFFIX,gv3.com
+  - DOMAIN-SUFFIX,android.com
+  - DOMAIN-SUFFIX,withgoogle.com
+  - DOMAIN-SUFFIX,blogger.com
+  - DOMAIN-SUFFIX,waze.com
+  - DOMAIN-SUFFIX,gmail.com
+  - DOMAIN-SUFFIX,xn--ngstr-lra8j.com
+  - DOMAIN-SUFFIX,services.googleapis.cn
+  - DOMAIN-KEYWORD,google
+  - DOMAIN-KEYWORD,businessmessages
+  - DOMAIN-KEYWORD,chrome

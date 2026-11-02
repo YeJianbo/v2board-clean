@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/vendor/
+admin/dist/
+backend/storage/
+*.log
+*.key
+*.pem
+*.p12
+*.pfx
+*.sqlite
+*.db
+.DS_Store

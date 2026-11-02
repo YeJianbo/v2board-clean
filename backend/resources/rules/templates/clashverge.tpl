@@ -1,0 +1,441 @@
+mode: rule
+mixed-port: 8964
+allow-lan: true
+log-level: info
+ipv6: true
+external-controller: 127.0.0.1:18964
+secret: set-your-secret
+unified-delay: true
+dns:
+  enable: true
+  listen: :53
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  prefer-h3: false
+  respect-rules: true
+  use-hosts: true
+  use-system-hosts: false
+  fake-ip-filter:
+  - '*.lan'
+  - '*.local'
+  - '*.arpa'
+  - ntp.*.com
+  - time.*.com
+  - +.market.xiaomi.com
+  - localhost.ptlogin2.qq.com
+  - '*.msftncsi.com'
+  - www.msftconnecttest.com
+  default-nameserver:
+  - 223.6.6.6
+  - 8.8.8.8
+  nameserver:
+  - 8.8.8.8
+  - https://doh.pub/dns-query
+  - https://dns.alidns.com/dns-query
+  fallback:
+  - https://dns.google/dns-query
+  - https://cloudflare-dns.com/dns-query
+  - https://dns.quad9.net/dns-query
+  nameserver-policy:
+    'rule-set:PanelCoreClaude':
+    - 'https://1.1.1.1/dns-query#✴️ Claude'
+    - 'https://8.8.8.8/dns-query#✴️ Claude'
+    +.cn:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+    +.中国:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+    +.google.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.googleapis.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.gstatic.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.youtube.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.github.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.githubusercontent.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.githubassets.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.openai.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.chatgpt.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.docker.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.docker.io:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.pypi.org:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.pythonhosted.org:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.anaconda.com:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+    +.anaconda.org:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+  proxy-server-nameserver:
+  - https://doh.pub/dns-query
+  - https://dns.alidns.com/dns-query
+  direct-nameserver: []
+  direct-nameserver-follow-policy: false
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+    - 240.0.0.0/4
+    - 0.0.0.0/32
+    domain:
+    - +.google.com
+    - +.facebook.com
+    - +.youtube.com
+profile:
+  store-selected: true
+bind-address: '*'
+external-controller-pipe: \\.\pipe\verge-mihomo
+
+hosts:
+  mtalk.google.com: 142.250.157.188
+  alt1-mtalk.google.com: 74.125.200.188
+  alt2-mtalk.google.com: 142.250.141.188
+  alt3-mtalk.google.com: 64.233.171.188
+  alt4-mtalk.google.com: 173.194.202.188
+  alt5-mtalk.google.com: 74.125.126.188
+  alt6-mtalk.google.com: 142.250.115.188
+  alt7-mtalk.google.com: 108.177.104.188
+  alt8-mtalk.google.com: 142.250.152.188
+  dl.google.com: 180.163.151.161
+  dl.l.google.com: 180.163.150.33
+
+tun:
+  stack: gvisor
+  device: Meta
+  auto-route: true
+  strict-route: false
+  auto-detect-interface: true
+  dns-hijack:
+  - any:53
+  mtu: 1500
+  enable: true
+external-controller-cors:
+  allow-private-network: true
+  allow-origins:
+  - tauri://localhost
+  - http://tauri.localhost
+  - https://yacd.metacubex.one
+  - https://metacubex.github.io
+  - https://board.zash.run.place
+
+
+proxies:
+
+proxy-groups:
+  - { name: "🚀 节点选择", type: select, proxies: ["♻️ 自动选择", "🎯 全球直连"] }
+#   - { name: "🛫 机场订阅", type: select, proxies: [/hjknkgy/, "🔵 EE", "🏳️‍⚧️ MTF"]}
+#   - { name: "🛫 自建节点", type: select, proxies: [/hjknkgy/, "ET"]}
+#   - { name: "🔵 EE", type: select, use: [EE], proxies: [/hjknkgy/, DIRECT]}
+#   - { name: "🐔 XFLTD", type: select, use: [dy.xftld.xyz], proxies: [/hjknkgy/, DIRECT] }
+#   - { name: "🏳️‍⚧️ MTF", type: select, use: [xsus], proxies: [/hjknkgy/, DIRECT] }
+#   - { name: "🇭🇰 香港", type: select, proxies: ["♻️ 自动选择-香港", "⚖️ 负载均衡-香港", /🇭🇰/] }
+  - { name: "♻️ 自动选择", type: url-test, proxies: [/^(?!剩余|套餐|距离).*/], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+  - { name: "🔯 故障转移", type: fallback, proxies: [/^(?!剩余|套餐|距离).*/, DIRECT], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+  - { name: "💡 OpenAI", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "💻 OpenCode", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "✴️ Claude", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🌍 国外媒体", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "▶️ YouTube", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🔍 Google", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "📸 Meta", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "𝕏 Twitter", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "ᯤ Spotify", type: select, proxies: ["🚀 节点选择", "🎯 全球直连",  /^(?!剩余|套餐|距离).*/] }
+#   - { name: "🟢 Spotify", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", "🛫 机场订阅", /^(?!剩余|套餐|距离).*/] }
+  - { name: "📢 谷歌FCM", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "📲 电报信息", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "Ⓜ️ 微软服务", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🍎 苹果服务", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🅱 哔哩哔哩", type: select, proxies: ["🎯 全球直连", "🚀 节点选择", /^(?!剩余|套餐|距离).*/] }
+  - { name: "💬 微信消息", type: select, proxies: ["🎯 全球直连", "🚀 节点选择", /^(?!剩余|套餐|距离).*/] }
+#   - { name: "☁️ CloudFlare", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", "🛫 机场订阅", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🧑‍💻 GitHub", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🧰 开发环境", type: select, proxies: ["🎯 全球直连", "🚀 节点选择", "🧑‍💻 GitHub", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🐻 PanelCore", type: select, proxies: ["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/] }
+  - { name: "🎯 全球直连", type: select, proxies:[DIRECT, /nbhnkjnj/]}
+  - { name: "🛑 全球拦截", type: select, proxies:[REJECT, DIRECT, /nbhnkjnj/]}
+  - { name: "🍃 应用净化", type: select, proxies:[REJECT, DIRECT, /nbhnkjnj/]}
+  - { name: "🆎 AdBlock", type: select, proxies:[REJECT, DIRECT, /nbhnkjnj/]}
+  - { name: "🌐 IPv6", type: select, proxies:["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/], url: "http://ipv6.google.com/generate_204"}
+  - { name: "🐟 漏网之鱼", type: select, proxies:["🚀 节点选择", "🎯 全球直连", /^(?!剩余|套餐|距离).*/]}
+  - { name: "☁️ CF Tunnel", type: select, proxies: ["🚀 节点选择", "🔯 故障转移", DIRECT, /^(?!剩余|套餐|距离).*/] }
+#   - { name: "♻️ 自动选择-香港", type: url-test, proxies: [/🇭🇰/], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+#   - { name: "♻️ 自动选择-日本", type: url-test, proxies: [/🇯🇵/], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+#   - { name: "♻️ 自动选择-台湾", type: url-test, proxies: [/🇹🇼/], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+#   - { name: "♻️ 自动选择-新加坡", type: url-test, proxies: [/🇸🇬/], url: "http://cp.cloudflare.com/generate_204", interval: 300 }
+#   - { name: "⚖️ 负载均衡-香港",type: load-balance, proxies: [/^🇭🇰.*中转.*$/], url: http://www.google.com/generate_204, interval: 300, strategy: round-robin }
+#   - { name: "⚖️ 负载均衡-日本",type: load-balance, proxies: [/^🇯🇵.*中转.*$/], url: http://www.google.com/generate_204, interval: 300, strategy: round-robin }
+#   - { name: "⚖️ 负载均衡-台湾",type: load-balance, proxies: [/^🇹🇼.*中转.*$/], url: http://www.google.com/generate_204, interval: 300, strategy: round-robin }
+#   - { name: "⚖️ 负载均衡-新加坡",type: load-balance, proxies: [/^🇸🇬.*中转.*$/], url: http://www.google.com/generate_204, interval: 300, strategy: round-robin }
+#  - { name: "⚖️ 负载均衡-轮询",type: load-balance, proxies: [, /🇸🇬/, /🇭🇰/, /🇹🇼/, /🇺🇸/, /🇯🇵/, /🇬🇧/, /🇫🇷/, /🇫🇮/, /🇩🇪/, /🇨🇦/], url: http://www.google.com/generate_204, interval: 300, strategy: round-robin }
+
+# proxy-providers:
+#   dy.xftld.xyz:
+#     type: http
+#     url: https://example.com/subscription
+#     interval: 3600
+#     path: ./dy.xftld.xyz.yaml
+#     health-check:
+#       enable: true
+#       interval: 600
+#       # lazy: true
+#       url: http://www.gstatic.com/generate_204
+#   EE:
+#     type: http
+#     url: https://example.com/subscription
+#     interval: 3600
+#     path: ./ee.yaml
+#     health-check:
+#       enable: true
+#       interval: 600
+#       # lazy: true
+#       url: http://www.gstatic.com/generate_204
+#   xsus:
+#     type: http
+#     url: https://example.com/subscription
+#     interval: 3600
+#     path: ./xsus.yaml
+#     health-check:
+#       enable: true
+#       interval: 600
+#       # lazy: true
+#       url: http://www.gstatic.com/generate_204
+
+rule-providers:
+  PanelCoreClaude:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/claude.yaml
+    path: ./PanelCore/claude.yaml
+    interval: 86400
+  PanelCoreReject:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/reject.yaml
+    path: ./PanelCore/reject.yaml
+    interval: 86400
+  PanelCoreDev:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/dev.yaml
+    path: ./PanelCore/dev.yaml
+    interval: 86400
+  PanelCoreWeChat:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/wechat.yaml
+    path: ./PanelCore/wechat.yaml
+    interval: 86400
+  PanelCoreBilibili:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/bilibili.yaml
+    path: ./PanelCore/bilibili.yaml
+    interval: 86400
+  PanelCoreOpenAI:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/openai.yaml
+    path: ./PanelCore/openai.yaml
+    interval: 86400
+  PanelCoreYouTube:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/youtube.yaml
+    path: ./PanelCore/youtube.yaml
+    interval: 86400
+  PanelCoreGoogleFCM:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/google-fcm.yaml
+    path: ./PanelCore/google-fcm.yaml
+    interval: 86400
+  PanelCoreGoogle:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/google.yaml
+    path: ./PanelCore/google.yaml
+    interval: 86400
+  PanelCoreMeta:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/facebook.yaml
+    path: ./PanelCore/facebook.yaml
+    interval: 86400
+  PanelCoreTwitter:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/twitter.yaml
+    path: ./PanelCore/twitter.yaml
+    interval: 86400
+  PanelCoreSpotify:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/spotify.yaml
+    path: ./PanelCore/spotify.yaml
+    interval: 86400
+  PanelCoreTelegram:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/telegram.yaml
+    path: ./PanelCore/telegram.yaml
+    interval: 86400
+  PanelCoreMicrosoft:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/microsoft.yaml
+    path: ./PanelCore/microsoft.yaml
+    interval: 86400
+  PanelCoreApple:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/apple.yaml
+    path: ./PanelCore/apple.yaml
+    interval: 86400
+  PanelCoreGitHub:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/github.yaml
+    path: ./PanelCore/github.yaml
+    interval: 86400
+  PanelCoreMedia:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/media.yaml
+    path: ./PanelCore/media.yaml
+    interval: 86400
+  PanelCoreSite:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/panelcore.yaml
+    path: ./PanelCore/panelcore.yaml
+    interval: 86400
+  PanelCoreDirect:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/direct.yaml
+    path: ./PanelCore/direct.yaml
+    interval: 86400
+  PanelCoreProxy:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/proxy.yaml
+    path: ./PanelCore/proxy.yaml
+    interval: 86400
+  PanelCoreProcessDirect:
+    type: http
+    behavior: classical
+    url: https://panel.invalid/rules/clash/process-direct.yaml
+    path: ./PanelCore/process-direct.yaml
+    interval: 86400
+  BanAD:
+    type: http
+    behavior: classical
+    url: https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/BanAD.yaml
+    path: ./ACL4SSR/BanAD.yaml
+    interval: 86400
+  BanProgramAD:
+    type: http
+    behavior: classical
+    url: https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/BanProgramAD.yaml
+    path: ./ACL4SSR/BanProgramAD.yaml
+    interval: 86400
+  BanEasyList:
+    type: http
+    behavior: classical
+    url: https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/BanEasyList.yaml
+    path: ./ACL4SSR/BanEasyList.yaml
+    interval: 86400
+  BanEasyListChina:
+    type: http
+    behavior: classical
+    url: https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/BanEasyListChina.yaml
+    path: ./ACL4SSR/BanEasyListChina.yaml
+    interval: 86400
+  BanEasyPrivacy:
+    type: http
+    behavior: classical
+    url: https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/BanEasyPrivacy.yaml
+    path: ./ACL4SSR/BanEasyPrivacy.yaml
+    interval: 86400
+rules:
+  - PROCESS-NAME,cloudflared.exe,☁️ CF Tunnel
+  - PROCESS-NAME,cloudflared,☁️ CF Tunnel
+  # 本地转发器连接边缘时，进程名不是 cloudflared。
+  - DOMAIN-SUFFIX,v2.argotunnel.com,☁️ CF Tunnel
+  - AND,((NETWORK,UDP),(RULE-SET,PanelCoreClaude)),REJECT
+  - PROCESS-NAME,opencode.exe,💻 OpenCode
+  - PROCESS-NAME,opencode,💻 OpenCode
+  - RULE-SET,PanelCoreClaude,✴️ Claude
+  # 应用进程规则优先于域名规则，避免被后面的通用规则提前命中。
+  - PROCESS-NAME,Telegram.exe,📲 电报信息
+  - PROCESS-NAME,org.telegram.messenger,📲 电报信息
+  - PROCESS-NAME,org.telegram.messenger.web,📲 电报信息
+  - PROCESS-NAME,org.telegram.messenger.beta,📲 电报信息
+  - PROCESS-NAME,org.thunderdog.challegram,📲 电报信息
+  - PROCESS-NAME,nekox.messenger,📲 电报信息
+  - PROCESS-NAME,tw.nekomimi.nekogram,📲 电报信息
+  - PROCESS-NAME,xyz.nextalone.nagram,📲 电报信息
+  - PROCESS-NAME,org.telegram.plus,📲 电报信息
+  - PROCESS-NAME,org.forkgram.messenger,📲 电报信息
+  - PROCESS-NAME,org.vidogram.messenger,📲 电报信息
+  - PROCESS-NAME,ir.ilmili.telegraph,📲 电报信息
+  - PROCESS-NAME,app.nicegram,📲 电报信息
+  - PROCESS-NAME,com.iMe.android,📲 电报信息
+  - RULE-SET,PanelCoreProcessDirect,DIRECT
+
+  - RULE-SET,BanAD,🛑 全球拦截
+  - RULE-SET,BanProgramAD,🍃 应用净化
+  - RULE-SET,BanEasyList,🆎 AdBlock
+  - RULE-SET,BanEasyListChina,🆎 AdBlock
+  - RULE-SET,BanEasyPrivacy,🆎 AdBlock
+  - RULE-SET,PanelCoreReject,REJECT
+
+  # 专项分流必须在通用直连和代理规则之前。
+  - RULE-SET,PanelCoreDev,🧰 开发环境
+  - RULE-SET,PanelCoreWeChat,💬 微信消息
+  - RULE-SET,PanelCoreBilibili,🅱 哔哩哔哩
+  - RULE-SET,PanelCoreOpenAI,💡 OpenAI
+  - RULE-SET,PanelCoreYouTube,▶️ YouTube
+  - RULE-SET,PanelCoreGoogleFCM,📢 谷歌FCM
+  - RULE-SET,PanelCoreGoogle,🔍 Google
+  - RULE-SET,PanelCoreMeta,📸 Meta
+  - RULE-SET,PanelCoreTwitter,𝕏 Twitter
+  - RULE-SET,PanelCoreSpotify,ᯤ Spotify
+  - RULE-SET,PanelCoreTelegram,📲 电报信息
+  - RULE-SET,PanelCoreMicrosoft,Ⓜ️ 微软服务
+  - RULE-SET,PanelCoreApple,🍎 苹果服务
+  - RULE-SET,PanelCoreGitHub,🧑‍💻 GitHub
+  - RULE-SET,PanelCoreMedia,🌍 国外媒体
+  - RULE-SET,PanelCoreSite,🐻 PanelCore
+  - RULE-SET,PanelCoreDirect,🎯 全球直连
+  - RULE-SET,PanelCoreProxy,🚀 节点选择
+
+  - GEOIP,CN,DIRECT,no-resolve
+  - IP-CIDR6,2000::/3,🌐 IPv6,no-resolve
+  - MATCH,🐟 漏网之鱼

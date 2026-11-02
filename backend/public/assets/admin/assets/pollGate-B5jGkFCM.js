@@ -1,0 +1,1 @@
+function e(){let e=null;return{begin(){return e?null:(e={},e)},isCurrent(t){return t!==null&&e===t},finish(t){e===t&&(e=null)},invalidate(){e=null}}}export{e as t};

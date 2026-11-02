@@ -1,0 +1,26 @@
+[Unit]
+Description=PanelCore model API relay
+After=network.target
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/opt/v2board
+ExecStart=/opt/v2board/services/model-relay/relay
+Environment=RELAY_PANEL_URL=http://127.0.0.1
+Environment=RELAY_PANEL_HOST=localhost
+Environment=RELAY_SECRET_FILE=/opt/v2board/storage/app/integrations/model-relay-gateway.key
+Environment=RELAY_SPOOL=/opt/v2board/storage/app/model-relay-spool
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=192M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/v2board/storage/app/model-relay-spool
+
+[Install]
+WantedBy=multi-user.target

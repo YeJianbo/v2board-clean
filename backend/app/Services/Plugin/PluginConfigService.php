@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Services\Plugin;
+
+use App\Models\Plugin;
+use Illuminate\Support\Facades\File;
+
+class PluginConfigService
+{
+    protected $pluginManager;
+
+    public function __construct()
+    {
+        $this->pluginManager = app(PluginManager::class);
+    }
+
+    /**
+     * 获取插件配置
+     *
+     * @param string $pluginCode
+     * @return array
+     */
+    public function getConfig(string $pluginCode): array
+    {
+        $defaultConfig = $this->getDefaultConfig($pluginCode);
+        if (empty($defaultConfig)) {
+            return [];
+        }
+        $dbConfig = $this->getDbConfig($pluginCode);
+
+        return $this->formatConfig($defaultConfig, $dbConfig);
+    }
+
+    public function formatConfig(array $defaultConfig, array $dbConfig): array
+    {
+        $result = [];
+        foreach ($defaultConfig as $key => $item) {
+            $result[$key] = [
+                'type' => $item['type'],
+                'label' => $item['label'] ?? '',
+                'placeholder' => $item['placeholder'] ?? '',
+                'description' => $item['description'] ?? '',
+                'value' => $dbConfig[$key] ?? $item['default'],
+                'options' => $item['options'] ?? []
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * 更新插件配置
+     *
+     * @param string $pluginCode
+     * @param array $config
+     * @return bool
+     */
+    public function updateConfig(string $pluginCode, array $config): bool
+    {
+        $defaultConfig = $this->getDefaultConfig($pluginCode);
+        if (empty($defaultConfig)) {
+            throw new PluginOperationException('插件配置结构不存在');
+        }
+        $values = [];
+        foreach ($config as $key => $value) {
+            if (!isset($defaultConfig[$key])) {
+                continue;
+            }
+            $values[$key] = $value;
+        }
+        $plugin = Plugin::query()->where('code', $pluginCode)->first();
+        if (!$plugin) {
+            throw new PluginOperationException('插件未安装');
+        }
+
+        $plugin->config = $values;
+        $plugin->save();
+
+        return true;
+    }
+
+    /**
+     * 获取插件默认配置
+     *
+     * @param string $pluginCode
+     * @return array
+     */
+    protected function getDefaultConfig(string $pluginCode): array
+    {
+        $configFile = $this->pluginManager->getPluginPath($pluginCode) . '/config.json';
+        if (!File::exists($configFile)) {
+            return [];
+        }
+
+        $config = json_decode(File::get($configFile), true);
+        return $config['config'] ?? [];
+    }
+
+    /**
+     * 获取数据库中的配置
+     *
+     * @param string $pluginCode
+     * @return array
+     */
+    public function getDbConfig(string $pluginCode): array
+    {
+        $plugin = Plugin::query()
+            ->where('code', $pluginCode)
+            ->first();
+
+        if (!$plugin || empty($plugin->config)) {
+            return [];
+        }
+
+        return is_array($plugin->config)
+            ? $plugin->config
+            : (json_decode($plugin->config, true) ?: []);
+    }
+}

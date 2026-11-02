@@ -1,0 +1,890 @@
+<script setup>
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
+import { createSequence } from '../utils/sequence'
+import { useRoute, useRouter } from 'vue-router'
+import { toUser, toPlan, toCoupon } from '../utils/crossLink'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, RefreshCw } from 'lucide-vue-next'
+import CopyButton from '../components/common/CopyButton.vue'
+import SectionCard from '../components/common/SectionCard.vue'
+import PaymentReceiptPanel from '../components/orders/PaymentReceiptPanel.vue'
+import {
+  fetchManagedOrders,
+  fetchOrderDetail,
+  markOrderPaid,
+  cancelOrder,
+  updateOrder,
+  assignOrder,
+  createEmptyManagedOrdersPagination,
+  ORDER_STATUS_MAP,
+  PERIOD_LABEL_MAP,
+} from '../services/orders'
+import { fetchManagedPlanOptions } from '../services/plans'
+import { fetchPayments } from '../services/payment'
+import { fetchCouponById } from '../services/coupons'
+import { assignmentAmountCents } from '../utils/orderAmount'
+
+const route = useRoute()
+const router = useRouter()
+
+const orders = ref([])
+const pagination = ref(createEmptyManagedOrdersPagination())
+const loading = ref(false)
+const errorMsg = ref('')
+const pendingOrders = ref(new Set())
+const searchKeyword = ref('')
+const statusFilter = ref('')
+const isCommission = ref(false)
+const commissionStatusFilter = ref('')
+const plans = ref([])
+const paymentMap = ref({})
+const paymentOptions = ref([])
+const paymentFilter = ref('')
+const userIdFilter = ref('')
+const userEmailDisplay = ref('')
+
+const detailDialogVisible = ref(false)
+const detailData = ref(null)
+const detailLoading = ref(false)
+const detailColumns = ref(2)
+let detailMediaQuery
+function syncDetailLayout(event) {
+  detailColumns.value = event.matches ? 1 : 2
+}
+
+// 订单详情里的优惠券信息：后端 order/detail 只返回 coupon_id，前端按 id 单独拉
+const detailCoupon = ref(null)
+const detailCouponLoading = ref(false)
+const detailCouponError = ref('')
+
+// 订单详情里的跨实体跳转目标（无目标时为 null → 模板渲染纯文本）
+const detailUserLink = computed(() => detailData.value && toUser(detailData.value.userId, detailData.value.userEmail))
+const detailInviterLink = computed(() => detailData.value && toUser(detailData.value.inviteUserId, detailData.value.inviteUserEmail))
+const detailPlanLink = computed(() => detailData.value && toPlan(detailData.value.planId))
+const detailCouponLink = computed(() => detailCoupon.value && toCoupon(detailCoupon.value.name, detailCoupon.value.code))
+
+const assignDialogVisible = ref(false)
+const assignForm = ref({
+  email: '',
+  planId: null,
+  period: 'month_price',
+  totalAmount: 0,
+})
+const assignSaving = ref(false)
+
+const statusOptions = [
+  { label: '全部', value: '' },
+  { label: '待支付', value: '0' },
+  { label: '开通中', value: '1' },
+  { label: '已取消', value: '2' },
+  { label: '已完成', value: '3' },
+  { label: '已折抵', value: '4' },
+  { label: '已完成 / 已折抵', value: 'completed' },
+]
+
+const periodOptions = [
+  { label: '月付', value: 'month_price' },
+  { label: '季付', value: 'quarter_price' },
+  { label: '半年付', value: 'half_year_price' },
+  { label: '年付', value: 'year_price' },
+  { label: '两年付', value: 'two_year_price' },
+  { label: '三年付', value: 'three_year_price' },
+  { label: '一次性', value: 'onetime_price' },
+  { label: '重置包', value: 'reset_price' },
+]
+
+const ordersSeq = createSequence()
+const detailSeq = createSequence()
+let disposed = false
+let listController, detailController, couponController
+const plansLoading = ref(false)
+let plansLoaded = false
+
+function cancelDetailReads() {
+  detailSeq.invalidate()
+  detailController?.abort()
+  couponController?.abort()
+  detailLoading.value = false
+  detailCouponLoading.value = false
+}
+
+watch(detailDialogVisible, open => { if (!open) cancelDetailReads() }, { flush: 'sync' })
+function disposeOrderReads() {
+  disposed = true
+  ordersSeq.invalidate()
+  listController?.abort()
+  cancelDetailReads()
+  detailMediaQuery?.removeEventListener('change', syncDetailLayout)
+}
+onBeforeUnmount(disposeOrderReads)
+
+async function loadOrders() {
+  if (disposed) return
+  const my = ordersSeq.next()
+  listController?.abort()
+  listController = new AbortController()
+  const signal = listController.signal
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const filter = []
+    if (searchKeyword.value.trim()) {
+      filter.push({ id: 'trade_no', value: searchKeyword.value.trim() })
+    }
+    if (statusFilter.value !== '') {
+      filter.push({ id: 'status', value: statusFilter.value === 'completed' ? [3, 4] : `eq:${statusFilter.value}` })
+    }
+    if (commissionStatusFilter.value !== '') {
+      filter.push({ id: 'commission_status', value: `eq:${commissionStatusFilter.value}` })
+    }
+    if (paymentFilter.value !== '') {
+      filter.push({ id: 'payment_id', value: `eq:${paymentFilter.value}` })
+    }
+    if (userIdFilter.value !== '') {
+      filter.push({ id: 'user_id', value: `eq:${userIdFilter.value}` })
+    }
+    const result = await fetchManagedOrders({
+      page: pagination.value.page,
+      pageSize: pagination.value.pageSize,
+      filter,
+      isCommission: isCommission.value,
+      signal,
+    })
+    if (!ordersSeq.isCurrent(my)) return
+    orders.value = result.list
+    pagination.value = result.pagination
+  } catch (err) {
+    if (!ordersSeq.isCurrent(my)) return
+    orders.value = []
+    errorMsg.value = err.message || '加载订单列表失败'
+  } finally {
+    if (ordersSeq.isCurrent(my)) loading.value = false
+  }
+}
+
+function handlePageChange(page) {
+  pagination.value.page = page
+  loadOrders()
+}
+
+function handlePageSizeChange(size) {
+  pagination.value.pageSize = size
+  pagination.value.page = 1
+  loadOrders()
+}
+
+function handleSearch() {
+  pagination.value.page = 1
+  loadOrders()
+}
+
+async function openDetail(order) {
+  if (disposed) return
+  cancelDetailReads()
+  const my = detailSeq.next()
+  detailController = new AbortController()
+  const signal = detailController.signal
+  detailLoading.value = true
+  detailDialogVisible.value = true
+  detailData.value = null
+  detailCoupon.value = null
+  detailCouponError.value = ''
+  try {
+    const data = await fetchOrderDetail(order.id, { signal })
+    if (!detailSeq.isCurrent(my)) return
+    detailData.value = data
+    // 并行（不阻塞主面板）拉取 coupon 详情
+    if (data?.couponId) {
+      loadDetailCoupon(data.couponId, my)
+    }
+  } catch (err) {
+    if (!detailSeq.isCurrent(my)) return
+    ElMessage.error(err.message || '获取订单详情失败')
+    detailDialogVisible.value = false
+  } finally {
+    if (detailSeq.isCurrent(my)) detailLoading.value = false
+  }
+}
+
+async function loadDetailCoupon(couponId, parentSeqToken) {
+  if (disposed || !detailDialogVisible.value || !detailSeq.isCurrent(parentSeqToken)) return
+  couponController?.abort()
+  couponController = new AbortController()
+  const signal = couponController.signal
+  detailCouponLoading.value = true
+  detailCouponError.value = ''
+  try {
+    const coupon = await fetchCouponById(couponId, { signal })
+    // 用打开订单时的 seq 守住：用户已切到下一张订单则丢弃
+    if (!detailSeq.isCurrent(parentSeqToken)) return
+    detailCoupon.value = coupon
+    if (!coupon) {
+      detailCouponError.value = `优惠券 #${couponId} 已被删除或不可访问`
+    }
+  } catch (err) {
+    if (!detailSeq.isCurrent(parentSeqToken)) return
+    detailCouponError.value = err?.message || '加载优惠券信息失败'
+  } finally {
+    if (detailSeq.isCurrent(parentSeqToken)) detailCouponLoading.value = false
+  }
+}
+
+function handleDetailDialogClose() {
+  if (detailDialogVisible.value) return
+  cancelDetailReads()
+  detailData.value = null
+  detailCoupon.value = null
+  detailCouponLoading.value = false
+  detailCouponError.value = ''
+}
+
+function formatCouponValidity(coupon) {
+  if (!coupon) return ''
+  const fmt = (ts) => {
+    if (!ts) return ''
+    const d = new Date(Number(ts) * 1000)
+    if (Number.isNaN(d.getTime())) return ''
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const start = fmt(coupon.startedAt)
+  const end = fmt(coupon.endedAt)
+  if (!start && !end) return '永久有效'
+  return `${start || '不限'} ~ ${end || '不限'}`
+}
+
+async function handleMarkPaid(order) {
+  if (disposed || pendingOrders.value.has(order.tradeNo)) return
+  const tradeNo = order.tradeNo
+  pendingOrders.value.add(tradeNo)
+  try {
+    await ElMessageBox.confirm(`确定要标记订单 ${tradeNo} 为已支付吗？`, '手动确认支付', {
+      type: 'warning',
+    })
+    if (disposed) return
+    await markOrderPaid(tradeNo)
+    if (disposed) return
+    ElMessage.success('订单已标记为已支付')
+    await loadOrders()
+  } catch (err) {
+    if (!disposed && err !== 'cancel' && err !== 'close') {
+      ElMessage.error(err.message || '操作失败')
+    }
+  } finally {
+    pendingOrders.value.delete(tradeNo)
+  }
+}
+
+async function handleCancel(order) {
+  if (disposed || pendingOrders.value.has(order.tradeNo)) return
+  const tradeNo = order.tradeNo
+  pendingOrders.value.add(tradeNo)
+  try {
+    await ElMessageBox.confirm(`确定要取消订单 ${tradeNo} 吗？`, '取消订单', {
+      type: 'warning',
+    })
+    if (disposed) return
+    await cancelOrder(tradeNo)
+    if (disposed) return
+    ElMessage.success('订单已取消')
+    await loadOrders()
+  } catch (err) {
+    if (!disposed && err !== 'cancel' && err !== 'close') {
+      ElMessage.error(err.message || '操作失败')
+    }
+  } finally {
+    pendingOrders.value.delete(tradeNo)
+  }
+}
+
+const assignFormRef = ref(null)
+const assignRules = {
+  email: [
+    { required: true, message: '请输入用户邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不合法', trigger: 'blur' },
+  ],
+  planId: [{ required: true, message: '请选择订阅计划', trigger: 'change' }],
+  period: [{ required: true, message: '请选择订单周期', trigger: 'change' }],
+  totalAmount: [
+    { required: true, message: '请输入支付金额', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        try { assignmentAmountCents(value); callback() } catch (error) { callback(error) }
+      },
+      trigger: 'blur',
+    },
+  ],
+}
+
+function openAssignDialog() {
+  if (disposed || assignSaving.value) return
+  assignForm.value = {
+    email: '',
+    planId: null,
+    period: 'month_price',
+    totalAmount: 0,
+  }
+  assignDialogVisible.value = true
+  loadAssignPlans()
+  // 等 dialog mount 完再清表单校验状态，避免上次的红框残留
+  nextTick(() => { if (!disposed && assignDialogVisible.value) assignFormRef.value?.clearValidate?.() })
+}
+
+async function loadAssignPlans() {
+  if (disposed || plansLoaded || plansLoading.value) return
+  plansLoading.value = true
+  try {
+    const list = await fetchManagedPlanOptions()
+    if (disposed) return
+    plans.value = list
+    plansLoaded = true
+  } catch (err) {
+    if (!disposed && assignDialogVisible.value) ElMessage.error(err.message || '加载订阅计划失败，请重新打开重试')
+  } finally {
+    if (!disposed) plansLoading.value = false
+  }
+}
+
+async function submitAssign() {
+  if (disposed || !assignDialogVisible.value || !assignFormRef.value || assignSaving.value) return
+  assignSaving.value = true
+  const draft = { ...assignForm.value }
+  try {
+    try { await assignFormRef.value.validate() } catch { return }
+    if (disposed || !assignDialogVisible.value) return
+    await assignOrder({
+      ...draft,
+      totalAmount: assignmentAmountCents(draft.totalAmount),
+    })
+    if (disposed) return
+    ElMessage.success('订单分配成功')
+    assignDialogVisible.value = false
+    loadOrders()
+  } catch (err) {
+    if (!disposed) ElMessage.error(err.message || '分配失败')
+  } finally {
+    assignSaving.value = false
+  }
+}
+
+async function handleCommissionConfirm(row, newStatus) {
+  if (disposed || pendingOrders.value.has(row.tradeNo)) return
+  if (newStatus === 1 && ![3, 4].includes(row.status)) {
+    ElMessage.warning('只能确认已完成或已折抵订单的佣金')
+    return
+  }
+  const tradeNo = row.tradeNo
+  pendingOrders.value.add(tradeNo)
+  const actionText = newStatus === 1 ? '确认' : '取消'
+  try {
+    await ElMessageBox.confirm(
+      `确定要${actionText}订单 ${tradeNo} 的佣金吗？`,
+      `${actionText}佣金`,
+      { type: newStatus === 1 ? 'info' : 'warning' },
+    )
+    if (disposed) return
+    await updateOrder({ tradeNo, commissionStatus: newStatus })
+    if (disposed) return
+    ElMessage.success(`佣金已${actionText}`)
+    await loadOrders()
+  } catch (err) {
+    if (!disposed && err !== 'cancel' && err !== 'close') {
+      ElMessage.error(err.message || `${actionText}佣金失败`)
+    }
+  } finally {
+    pendingOrders.value.delete(tradeNo)
+  }
+}
+
+function applyOrderQuery() {
+  isCommission.value = route.query.commission === '1'
+  commissionStatusFilter.value = String(route.query.commission_status || '')
+  userIdFilter.value = String(route.query.user_id || '')
+  userEmailDisplay.value = String(route.query.user_email || '')
+  searchKeyword.value = ''
+  statusFilter.value = statusOptions.some(option => option.value === route.query.status) ? route.query.status : ''
+  paymentFilter.value = ''
+  pagination.value.page = 1
+  loadOrders()
+}
+
+watch(() => [route.query.commission, route.query.commission_status, route.query.status, route.query.user_id, route.query.user_email], applyOrderQuery)
+
+onMounted(function onMount() {
+  detailMediaQuery = window.matchMedia('(max-width: 560px)')
+  syncDetailLayout(detailMediaQuery)
+  detailMediaQuery.addEventListener('change', syncDetailLayout)
+  applyOrderQuery()
+  fetchPayments().then(list => {
+    if (disposed) return
+    const map = {}
+    list.forEach(p => { map[p.id] = p.name })
+    paymentMap.value = map
+    paymentOptions.value = list.map(p => ({ label: p.name, value: String(p.id) }))
+  }).catch(err => { console.warn('[OrdersPage] 加载支付方式失败', err) })
+})
+</script>
+
+<template>
+  <section class="page-stack">
+    <SectionCard>
+      <template #actions>
+        <el-space wrap>
+          <el-input
+            v-model="searchKeyword"
+            :prefix-icon="Search"
+            clearable
+            placeholder="搜索订单号…"
+            aria-label="搜索订单号"
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+          <el-button class="primary-btn small" type="primary" :disabled="assignSaving" @click="openAssignDialog">
+            分配订单
+          </el-button>
+        </el-space>
+      </template>
+
+      <!-- 筛选栏 -->
+      <div class="order-filter-bar">
+        <el-space wrap :size="6">
+          <el-tag
+            :effect="statusFilter === '' && !isCommission && !userIdFilter ? 'dark' : 'plain'"
+            class="order-filter-tag"
+            role="button"
+            tabindex="0"
+            @click="statusFilter = ''; isCommission = false; commissionStatusFilter = ''; userIdFilter = ''; userEmailDisplay = ''; handleSearch()"
+            @keydown.enter.prevent="statusFilter = ''; isCommission = false; commissionStatusFilter = ''; userIdFilter = ''; userEmailDisplay = ''; handleSearch()"
+            @keydown.space.prevent="statusFilter = ''; isCommission = false; commissionStatusFilter = ''; userIdFilter = ''; userEmailDisplay = ''; handleSearch()"
+          >全部</el-tag>
+          <el-tag
+            v-for="opt in statusOptions.slice(1)"
+            :key="opt.value"
+            :effect="statusFilter === opt.value ? 'dark' : 'plain'"
+            class="order-filter-tag"
+            role="button"
+            tabindex="0"
+            @click="statusFilter = opt.value; handleSearch()"
+            @keydown.enter.prevent="statusFilter = opt.value; handleSearch()"
+            @keydown.space.prevent="statusFilter = opt.value; handleSearch()"
+          >{{ opt.label }}</el-tag>
+          <el-divider direction="vertical" />
+          <el-tag
+            :effect="isCommission ? 'dark' : 'plain'"
+            class="order-filter-tag"
+            role="button"
+            tabindex="0"
+            @click="isCommission = !isCommission; handleSearch()"
+            @keydown.enter.prevent="isCommission = !isCommission; handleSearch()"
+            @keydown.space.prevent="isCommission = !isCommission; handleSearch()"
+          >仅佣金</el-tag>
+          <el-select
+            v-model="commissionStatusFilter"
+            placeholder="佣金状态"
+            style="width: 110px"
+            @change="handleSearch"
+            clearable
+          >
+            <el-option label="全部" value="" />
+            <el-option label="待确认" value="0" />
+            <el-option label="发放中" value="1" />
+            <el-option label="已发放" value="2" />
+            <el-option label="无效" value="3" />
+          </el-select>
+          <el-select
+            v-model="paymentFilter"
+            placeholder="支付方式"
+            style="width: 130px"
+            @change="handleSearch"
+            clearable
+          >
+            <el-option label="全部" value="" />
+            <el-option
+              v-for="opt in paymentOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-space>
+      </div>
+
+      <el-alert
+        v-if="userEmailDisplay"
+        :title="`当前筛选用户: ${userEmailDisplay}`"
+        type="info"
+        show-icon
+        closable
+        style="margin-bottom: 12px"
+        @close="userIdFilter = ''; userEmailDisplay = ''; handleSearch()"
+      />
+
+      <el-alert v-if="errorMsg" :title="errorMsg" closable show-icon type="error" style="margin-bottom: 16px" @close="errorMsg = ''" />
+
+      <el-table v-loading="loading" :data="orders" stripe style="width: 100%">
+        <el-table-column label="订单号" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="order-number-cell"><button type="button" class="order-number-link" :aria-label="`查看订单 ${row.tradeNo}`" @click="openDetail(row)">{{ row.tradeNo }}</button><CopyButton :value="row.tradeNo" :tooltip-content="'复制订单号'" /></div>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="80" prop="typeText" />
+        <el-table-column label="订阅计划" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <button v-if="toPlan(row.planId)" class="x-link x-link--button" type="button" @click="router.push(toPlan(row.planId))">{{ row.planName }}</button>
+            <span v-else>{{ row.planName }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="周期" width="80" prop="periodText" />
+        <el-table-column label="支付金额" width="110">
+          <template #default="{ row }">
+            <div class="order-amount-cell">
+              <span>{{ row.totalAmountText }}</span>
+              <span v-if="row.status === 4 && row.surplusAmount > 0" class="order-amount-note">
+                已折抵 ¥{{ row.surplusAmount.toFixed(2) }}
+              </span>
+              <span v-else-if="row.status === 4" class="order-amount-note">
+                已折抵
+              </span>
+              <span v-else-if="row.balanceAmount > 0" class="order-amount-note">
+                含余额 ¥{{ row.balanceAmount.toFixed(2) }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="订单状态" width="96" align="center">
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="row.status === 4"
+              effect="dark"
+              placement="top"
+              :content="`该订单剩余价值${row.surplusAmount > 0 ? `（¥${row.surplusAmount.toFixed(2)}）` : ''}已被用户用于换购/升级新订单，订单不再参与计费。`"
+            >
+              <div class="order-status-badge">
+                <el-tag :type="row.statusType" effect="dark" size="small">{{ row.statusText }}</el-tag>
+              </div>
+            </el-tooltip>
+            <div v-else class="order-status-badge">
+              <el-tag :type="row.statusType" effect="dark" size="small">{{ row.statusText }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="佣金金额" width="90">
+          <template #default="{ row }">
+            <span v-if="row.commissionBalance">¥{{ row.commissionBalance.toFixed(2) }}</span>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="佣金状态" width="90" align="center">
+          <template #default="{ row }">
+            <div class="order-status-badge">
+              <el-tag v-if="row.commissionStatus !== null" :type="row.commissionStatusType" size="small">{{ row.commissionStatusText }}</el-tag>
+              <span v-else>--</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="150" prop="createdAt" />
+        <el-table-column fixed="right" label="操作" width="80">
+          <template #default="{ row }">
+            <el-dropdown trigger="click">
+              <el-button link size="small" type="primary">操作</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 0" :disabled="pendingOrders.has(row.tradeNo)" @click="handleMarkPaid(row)">确认付款</el-dropdown-item>
+                  <el-dropdown-item v-if="row.commissionStatus === 0 && [3, 4].includes(row.status)" :disabled="pendingOrders.has(row.tradeNo)" @click="handleCommissionConfirm(row, 1)">确认佣金</el-dropdown-item>
+                  <el-dropdown-item v-if="row.commissionStatus === 0" :disabled="pendingOrders.has(row.tradeNo)" @click="handleCommissionConfirm(row, 3)" style="color:var(--el-color-warning)">取消佣金</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 0" :disabled="pendingOrders.has(row.tradeNo)" divided @click="handleCancel(row)" style="color:var(--el-color-danger)">取消</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-pagination
+        :current-page="pagination.page"
+        :page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="pagination.total"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 16px; justify-content: flex-end"
+        @current-change="handlePageChange"
+        @size-change="handlePageSizeChange"
+      />
+    </SectionCard>
+
+    <!-- 订单详情对话框 -->
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="订单详情"
+      width="min(640px, calc(100vw - 32px))"
+      destroy-on-close
+      @closed="handleDetailDialogClose"
+    >
+      <div class="order-detail-content" :aria-busy="detailLoading">
+        <el-skeleton v-if="detailLoading" :rows="6" animated />
+        <template v-else-if="detailData">
+          <el-descriptions :column="detailColumns" border size="small">
+            <el-descriptions-item label="订单号" :span="2">
+              <span style="font-family: monospace; font-size: 12px; word-break: break-all;">{{ detailData.tradeNo }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="用户邮箱" :span="2">
+              <button v-if="detailUserLink" class="x-link x-link--button" type="button" style="font-weight: 600;" title="在用户管理中查看该用户" @click="router.push(detailUserLink)">{{ detailData.userEmail }}</button>
+              <span v-else style="font-weight: 600; color: var(--el-color-primary);">{{ detailData.userEmail }}</span>
+              <span style="color: var(--el-text-color-secondary); margin-left: 8px;">(ID: {{ detailData.userId }})</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="类型">{{ detailData.typeText }}</el-descriptions-item>
+            <el-descriptions-item label="周期">{{ detailData.periodText }}</el-descriptions-item>
+            <el-descriptions-item label="套餐" :span="2">
+              <button v-if="detailPlanLink" class="x-link x-link--button" type="button" title="在套餐管理中查看" @click="router.push(detailPlanLink)">{{ detailData.planName }}</button>
+              <span v-else>{{ detailData.planName }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="金额">{{ detailData.totalAmountText }}</el-descriptions-item>
+            <el-descriptions-item label="优惠金额">
+              <span v-if="detailData.discountAmount" style="color: var(--el-color-success); font-weight: 600;">
+                -¥{{ detailData.discountAmount.toFixed(2) }}
+              </span>
+              <span v-else style="color: var(--el-text-color-placeholder);">--</span>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detailData.balanceAmount > 0" label="余额抵扣">
+              ¥{{ detailData.balanceAmount.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detailData.surplusAmount > 0 || detailData.status === 4" label="剩余价值">
+              ¥{{ detailData.surplusAmount.toFixed(2) }}
+              <span style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 6px;">已折抵给新单</span>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detailData.refundAmount > 0" label="退款金额">
+              ¥{{ detailData.refundAmount.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="支付方式">{{ paymentMap[detailData.paymentId] || '--' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tooltip
+                v-if="detailData.status === 4"
+                effect="dark"
+                placement="top"
+                :content="`该订单剩余价值${detailData.surplusAmount > 0 ? `（¥${detailData.surplusAmount.toFixed(2)}）` : ''}已被用户用于换购/升级新订单，订单不再参与计费。`"
+              >
+                <el-tag :type="detailData.statusType" effect="dark" size="small">{{ detailData.statusText }}</el-tag>
+              </el-tooltip>
+              <el-tag v-else :type="detailData.statusType" effect="dark" size="small">{{ detailData.statusText }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="佣金">¥{{ detailData.commissionBalance.toFixed(2) }}</el-descriptions-item>
+            <el-descriptions-item label="佣金状态">{{ detailData.commissionStatusText }}</el-descriptions-item>
+            <el-descriptions-item label="邀请人">
+              <template v-if="detailData.inviteUserId">
+                <button v-if="detailInviterLink" class="x-link x-link--button" type="button" title="在用户管理中查看邀请人" @click="router.push(detailInviterLink)">{{ detailData.inviteUserEmail || `ID:${detailData.inviteUserId}` }}</button>
+                <span v-else>{{ detailData.inviteUserEmail || '--' }}</span>
+                <span style="color: var(--el-text-color-secondary);"> (ID: {{ detailData.inviteUserId }})</span>
+              </template>
+              <span v-else>--</span>
+            </el-descriptions-item>
+            <!-- 优惠券完整信息（按 id 异步拉取） -->
+            <el-descriptions-item v-if="detailData.couponId" label="优惠券" :span="2">
+              <div v-if="detailCouponLoading" style="color: var(--el-text-color-placeholder); font-size: 12px;">
+                正在加载优惠券信息...
+              </div>
+              <div v-else-if="detailCoupon" class="order-coupon-detail">
+                <div class="order-coupon-detail__line">
+                  <button v-if="detailCouponLink" class="x-link x-link--button x-link--strong" type="button" title="在优惠券管理中查看" @click="router.push(detailCouponLink)">{{ detailCoupon.name || '未命名' }}</button>
+                  <strong v-else>{{ detailCoupon.name || '未命名' }}</strong>
+                  <el-tag size="small" :type="detailCoupon.type === 2 ? 'warning' : detailCoupon.type === 3 ? 'info' : 'success'">
+                    {{ detailCoupon.type === 2 ? '按比例优惠' : detailCoupon.type === 3 ? '重置流量' : '按金额优惠' }}
+                  </el-tag>
+                  <span class="order-coupon-detail__value">
+                    <template v-if="detailCoupon.type === 2">{{ detailCoupon.value }}%</template>
+                    <template v-else-if="detailCoupon.type === 3">免单</template>
+                    <template v-else>¥{{ (Number(detailCoupon.value || 0) / 100).toFixed(2) }}</template>
+                  </span>
+                </div>
+                <div class="order-coupon-detail__meta">
+                  <span>券码：<code>{{ detailCoupon.code || '--' }}</code></span>
+                  <span>有效期：{{ formatCouponValidity(detailCoupon) }}</span>
+                </div>
+                <div class="order-coupon-detail__meta">
+                  <span>使用上限：{{ detailCoupon.limitUse ?? '不限' }}</span>
+                  <span>单用户限用：{{ detailCoupon.limitUseWithUser ?? '不限' }}</span>
+                  <span>ID：{{ detailCoupon.id }}</span>
+                </div>
+              </div>
+              <div v-else-if="detailCouponError" style="color: var(--el-color-danger); font-size: 12px;">
+                ⚠ {{ detailCouponError }}（ID: {{ detailData.couponId }}）
+              </div>
+              <div v-else style="color: var(--el-text-color-placeholder); font-size: 12px;">
+                未关联优惠券
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item label="支付时间">{{ detailData.paidAt }}</el-descriptions-item>
+            <el-descriptions-item label="创建时间">{{ detailData.createdAt }}</el-descriptions-item>
+            <el-descriptions-item label="回调单号" :span="2">
+              <span style="word-break: break-all; font-size: 12px;">{{ detailData.callbackNo || '--' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item
+              v-if="detailData.surplusOrderIds && detailData.surplusOrderIds.length > 0"
+              label="折抵自旧订单"
+              :span="2"
+            >
+              <div class="order-surplus-list">
+                <span class="order-surplus-tip">本单使用了以下旧订单的剩余价值折抵：</span>
+                <el-tag
+                  v-for="oid in detailData.surplusOrderIds"
+                  :key="`from-${oid}`"
+                  size="small"
+                  type="info"
+                  style="margin-right: 6px; font-family: monospace;"
+                >#{{ oid }}</el-tag>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item
+              v-if="detailData.status === 4"
+              label="折抵说明"
+              :span="2"
+            >
+              <div class="order-surplus-note">
+                该订单剩余价值已被用户用于换购/升级新订单，订单不再参与计费。
+              </div>
+            </el-descriptions-item>
+          </el-descriptions>
+          <PaymentReceiptPanel v-if="detailDialogVisible" :key="detailData.tradeNo" :trade-no="detailData.tradeNo" :context-signal="detailController?.signal" />
+        </template>
+      </div>
+    </el-dialog>
+
+    <!-- 订单分配对话框 -->
+    <el-dialog v-model="assignDialogVisible" title="订单分配" width="min(440px, calc(100vw - 32px))" destroy-on-close
+      :show-close="!assignSaving" :close-on-click-modal="!assignSaving" :close-on-press-escape="!assignSaving">
+      <el-form
+        ref="assignFormRef"
+        :model="assignForm"
+        :rules="assignRules"
+        :disabled="assignSaving"
+        label-position="top"
+      >
+        <el-form-item label="用户邮箱" prop="email">
+          <el-input v-model="assignForm.email" placeholder="请输入用户邮箱" clearable />
+        </el-form-item>
+        <el-form-item label="订阅计划" prop="planId">
+          <el-select v-model="assignForm.planId" placeholder="请选择订阅计划" :loading="plansLoading" :disabled="plansLoading" style="width: 100%">
+            <el-option
+              v-for="plan in plans"
+              :key="plan.id"
+              :label="plan.name"
+              :value="plan.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="订单周期" prop="period">
+          <el-select v-model="assignForm.period" placeholder="请选择购买时长" style="width: 100%">
+            <el-option
+              v-for="opt in periodOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="支付金额（元）" prop="totalAmount">
+          <el-input v-model.number="assignForm.totalAmount" placeholder="0" type="number" :min="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="assignSaving" @click="assignDialogVisible = false">取消</el-button>
+        <el-button :loading="assignSaving" type="primary" @click="submitAssign">确定</el-button>
+      </template>
+    </el-dialog>
+  </section>
+</template>
+
+<style scoped>
+.order-number-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.order-number-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none; padding: 4px 0; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; }
+.order-number-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.order-detail-content :deep(.el-descriptions__label) {
+  width: 84px;
+  white-space: nowrap;
+}
+.order-detail-content :deep(.el-descriptions__content) {
+  overflow-wrap: anywhere;
+}
+.order-detail-content .x-link {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.order-status-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 24px;
+  line-height: 1;
+}
+
+.order-amount-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.order-amount-note {
+  font-size: 11px;
+  color: var(--el-color-info);
+  white-space: nowrap;
+}
+
+.order-surplus-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.order-surplus-tip {
+  color: var(--el-text-color-secondary);
+  margin-right: 4px;
+}
+
+.order-surplus-note {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+
+.order-coupon-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.order-coupon-detail__line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.order-coupon-detail__value {
+  color: var(--el-color-success);
+  font-weight: 600;
+}
+
+.order-coupon-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.order-coupon-detail__meta code {
+  background: var(--el-fill-color-light);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+</style>

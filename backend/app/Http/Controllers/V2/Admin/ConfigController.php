@@ -1,0 +1,443 @@
+<?php
+
+namespace App\Http\Controllers\V2\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\ConfigSave;
+use App\Models\SubscribeTemplate;
+use App\Services\AdminSettingSecrets;
+use App\Services\AdminSettingsWriter;
+use App\Services\MailService;
+use App\Services\TelegramService;
+use App\Services\XboardThemeService;
+use App\Utils\Dict;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+
+class ConfigController extends Controller
+{
+
+
+    public function getEmailTemplate()
+    {
+        $path = resource_path('views/mail/');
+        $files = array_map(function ($item) use ($path) {
+            return str_replace($path, '', $item);
+        }, glob($path . '*'));
+        return $this->success($files);
+    }
+
+    public function getThemeTemplate()
+    {
+        $path = public_path('theme/');
+        $files = array_map(function ($item) use ($path) {
+            return str_replace($path, '', $item);
+        }, glob($path . '*'));
+        return $this->success($files);
+    }
+
+    public function testSendMail(Request $request)
+    {
+        $email = $request->input('user.email');
+        if (!is_string($email) || $email === '') abort(403, '未登录或登陆已过期');
+        $mailLog = MailService::sendEmail([
+            'email' => $email,
+            'subject' => 'This is PanelCore test email',
+            'template_name' => 'notify',
+            'template_value' => [
+                'name' => admin_setting('app_name', 'PanelCore'),
+                'content' => 'This is PanelCore test email',
+                'url' => admin_setting('app_url')
+            ]
+        ]);
+        return response([
+            'data' => $mailLog,
+        ]);
+    }
+    public function setTelegramWebhook(Request $request)
+    {
+        $hookUrl = $this->resolveTelegramWebhookUrl();
+        if (blank($hookUrl)) {
+            return $this->fail([422, 'Telegram Webhook地址未配置']);
+        }
+        $hookUrl .= '?' . http_build_query([
+            'access_token' => md5(admin_setting('telegram_bot_token', $request->input('telegram_bot_token')))
+        ]);
+        $telegramService = new TelegramService($request->input('telegram_bot_token'));
+        $telegramService->getMe();
+        $telegramService->setWebhook(url: $hookUrl);
+        $telegramService->registerBotCommands();
+        return $this->success([
+            'success' => true,
+            'webhook_url' => $hookUrl,
+            'webhook_base_url' => $this->getTelegramWebhookBaseUrl(),
+        ]);
+    }
+
+    public function testTelegram(Request $request)
+    {
+        $params = $request->validate([
+            'telegram_bot_token' => 'nullable|string',
+            'chat_id' => ['nullable', 'regex:/^-?\d+$/'],
+        ]);
+        $telegramService = new TelegramService($params['telegram_bot_token'] ?? '');
+        $message = "PanelCore Telegram通知测试\n时间：" . date('Y-m-d H:i:s');
+
+        if (!empty($params['chat_id'])) {
+            $telegramService->sendMessage((int) $params['chat_id'], $message);
+            return $this->success(['recipients' => 1]);
+        }
+
+        $recipients = $telegramService->sendMessageWithAdmin($message, false, '', true);
+        if ($recipients < 1) {
+            return $this->fail([422, '没有可用的Telegram管理员收件人']);
+        }
+
+        return $this->success(['recipients' => $recipients]);
+    }
+
+    public function fetch(Request $request)
+    {
+        $params = $request->validate([
+            'key' => 'nullable|string|max:64',
+        ]);
+        $key = $params['key'] ?? null;
+        if ($key !== null && $key !== '') {
+            $configMappings = $this->getConfigMappings($key);
+            abort_unless(isset($configMappings[$key]), 422, 'Unknown configuration category');
+            return $this->success(app(AdminSettingSecrets::class)->serializeGroups($configMappings));
+        }
+
+        return $this->success(app(AdminSettingSecrets::class)->serializeGroups($this->getConfigMappings()));
+    }
+
+    /**
+     * 获取配置映射数据
+     * 
+     * @return array 配置映射数组
+     */
+    private function getConfigMappings(?string $key = null): array
+    {
+        $factories = [
+            'invite' => function (): array {
+                return [
+                'invite_force' => (bool) admin_setting('invite_force', 0),
+                'invite_commission' => admin_setting('invite_commission', 10),
+                'invite_gen_limit' => admin_setting('invite_gen_limit', 5),
+                'invite_never_expire' => (bool) admin_setting('invite_never_expire', 0),
+                'commission_first_time_enable' => (bool) admin_setting('commission_first_time_enable', 1),
+                'commission_auto_check_enable' => (bool) admin_setting('commission_auto_check_enable', 1),
+                'commission_withdraw_limit' => admin_setting('commission_withdraw_limit', 100),
+                'commission_withdraw_method' => admin_setting('commission_withdraw_method', Dict::WITHDRAW_METHOD_WHITELIST_DEFAULT),
+                'withdraw_close_enable' => (bool) admin_setting('withdraw_close_enable', 0),
+                'commission_distribution_enable' => (bool) admin_setting('commission_distribution_enable', 0),
+                'commission_distribution_l1' => admin_setting('commission_distribution_l1'),
+                'commission_distribution_l2' => admin_setting('commission_distribution_l2'),
+                'commission_distribution_l3' => admin_setting('commission_distribution_l3')
+                ];
+            },
+            'site' => function (): array {
+                return [
+                'logo' => admin_setting('logo'),
+                'force_https' => (int) admin_setting('force_https', 0),
+                'user_frontend_enable' => (int) admin_setting('user_frontend_enable', 1),
+                'stop_register' => (int) admin_setting('stop_register', 0),
+                'app_name' => admin_setting('app_name', 'PanelCore'),
+                'app_description' => admin_setting('app_description', 'PanelCore service panel'),
+                'app_url' => admin_setting('app_url'),
+                'subscribe_url' => admin_setting('subscribe_url'),
+                'try_out_plan_id' => (int) admin_setting('try_out_plan_id', 0),
+                'try_out_hour' => (int) admin_setting('try_out_hour', 1),
+                'tos_url' => admin_setting('tos_url'),
+                'currency' => admin_setting('currency', 'CNY'),
+                'currency_symbol' => admin_setting('currency_symbol', '¥'),
+                'ticket_must_wait_reply' => (bool) admin_setting('ticket_must_wait_reply', 0),
+                ];
+            },
+            'subscribe' => function (): array {
+                return [
+                'plan_change_enable' => (bool) admin_setting('plan_change_enable', 1),
+                'reset_traffic_method' => (int) admin_setting('reset_traffic_method', 0),
+                'surplus_enable' => (bool) admin_setting('surplus_enable', 1),
+                'new_order_event_id' => (int) admin_setting('new_order_event_id', 0),
+                'renew_order_event_id' => (int) admin_setting('renew_order_event_id', 0),
+                'change_order_event_id' => (int) admin_setting('change_order_event_id', 0),
+                'show_info_to_server_enable' => (bool) admin_setting('show_info_to_server_enable', 0),
+                'show_protocol_to_server_enable' => (bool) admin_setting('show_protocol_to_server_enable', 0),
+                'show_subscribe_method' => (int) admin_setting('show_subscribe_method', 0),
+                'show_subscribe_expire' => (int) admin_setting('show_subscribe_expire', 5),
+                'default_remind_expire' => (bool) admin_setting('default_remind_expire', 1),
+                'default_remind_traffic' => (bool) admin_setting('default_remind_traffic', 1),
+                'ticket_reply_limit' => (bool) admin_setting('ticket_reply_limit', 0),
+                'ticket_active_subscription_required' => (bool) admin_setting('ticket_active_subscription_required', 0),
+                'subscribe_path' => admin_setting('subscribe_path', 's'),
+                ];
+            },
+            'frontend' => function (): array {
+                $theme = (string) admin_setting('frontend_theme', 'xboard');
+                $appearance = app(XboardThemeService::class)->getConfig($theme) ?? [];
+                return [
+                'frontend_theme' => $theme,
+                'frontend_theme_sidebar' => $appearance['theme_sidebar'] ?? admin_setting('frontend_theme_sidebar', 'light'),
+                'frontend_theme_header' => $appearance['theme_header'] ?? admin_setting('frontend_theme_header', 'dark'),
+                'frontend_theme_color' => $appearance['theme_color'] ?? admin_setting('frontend_theme_color', 'default'),
+                'frontend_background_url' => $appearance['background_url'] ?? admin_setting('frontend_background_url'),
+                ];
+            },
+            'server' => function (): array {
+                return [
+                'server_token' => admin_setting('server_token'),
+                'server_pull_interval' => admin_setting('server_pull_interval', 60),
+                'server_push_interval' => admin_setting('server_push_interval', 60),
+                'traffic_retention_minute' => \App\Services\TrafficRetention::days('minute'),
+                'traffic_retention_hour' => \App\Services\TrafficRetention::days('hour'),
+                'traffic_retention_daily' => \App\Services\TrafficRetention::days('daily'),
+                'traffic_retention_domain_hour' => \App\Services\TrafficRetention::days('domain_hour'),
+                'traffic_retention_domain_daily' => \App\Services\TrafficRetention::days('domain_daily'),
+                'device_limit_mode' => (int) admin_setting('device_limit_mode', 0),
+                'server_ws_enable' => (bool) admin_setting('server_ws_enable', 1),
+                'server_ws_url' => admin_setting('server_ws_url', ''),
+                ];
+            },
+            'email' => function (): array {
+                return [
+                'email_template' => admin_setting('email_template', 'default'),
+                'email_host' => admin_setting('email_host'),
+                'email_port' => admin_setting('email_port'),
+                'email_username' => admin_setting('email_username'),
+                'email_password' => admin_setting('email_password'),
+                'email_encryption' => admin_setting('email_encryption'),
+                'email_from_address' => admin_setting('email_from_address'),
+                'remind_mail_enable' => (bool) admin_setting('remind_mail_enable', false),
+                ];
+            },
+            'telegram' => function (): array {
+                return [
+                'telegram_bot_enable' => (bool) admin_setting('telegram_bot_enable', 0),
+                'telegram_bot_token' => admin_setting('telegram_bot_token'),
+                'telegram_webhook_url' => admin_setting('telegram_webhook_url'),
+                'telegram_admin_chat_id' => admin_setting('telegram_admin_chat_id', ''),
+                'telegram_discuss_id' => admin_setting('telegram_discuss_id', ''),
+                'telegram_channel_id' => admin_setting('telegram_channel_id', ''),
+                'telegram_discuss_link' => admin_setting('telegram_discuss_link'),
+                'telegram_machine_alert_enable' => (bool) admin_setting('telegram_machine_alert_enable', 1),
+                'telegram_machine_status_alert_enable' => (bool) admin_setting('telegram_machine_status_alert_enable', 1),
+                'telegram_machine_offline_seconds' => (int) admin_setting('telegram_machine_offline_seconds', 300),
+                'telegram_machine_resource_alert_enable' => (bool) admin_setting('telegram_machine_resource_alert_enable', 1),
+                'telegram_machine_resource_consecutive' => (int) admin_setting('telegram_machine_resource_consecutive', 3),
+                'telegram_machine_resource_duration_seconds' => (int) admin_setting('telegram_machine_resource_duration_seconds', 180),
+                'telegram_machine_cpu_alert_enable' => (bool) admin_setting('telegram_machine_cpu_alert_enable', 1),
+                'telegram_machine_cpu_threshold' => (int) admin_setting('telegram_machine_cpu_threshold', 90),
+                'telegram_machine_memory_alert_enable' => (bool) admin_setting('telegram_machine_memory_alert_enable', 1),
+                'telegram_machine_memory_threshold' => (int) admin_setting('telegram_machine_memory_threshold', 90),
+                'telegram_machine_disk_alert_enable' => (bool) admin_setting('telegram_machine_disk_alert_enable', 1),
+                'telegram_machine_disk_threshold' => (int) admin_setting('telegram_machine_disk_threshold', 95),
+                'telegram_machine_network_alert_enable' => (bool) admin_setting('telegram_machine_network_alert_enable', 0),
+                'telegram_machine_network_mbps_threshold' => (float) admin_setting('telegram_machine_network_mbps_threshold', 0),
+                'telegram_machine_quality_alert_enable' => (bool) admin_setting('telegram_machine_quality_alert_enable', 0),
+                'telegram_machine_quality_latency_threshold' => (float) admin_setting('telegram_machine_quality_latency_threshold', 300),
+                'telegram_machine_quality_loss_threshold' => (float) admin_setting('telegram_machine_quality_loss_threshold', 30),
+                'telegram_machine_quality_consecutive_count' => (int) admin_setting('telegram_machine_quality_consecutive_count', 3),
+                'telegram_machine_quality_cooldown_seconds' => (int) admin_setting('telegram_machine_quality_cooldown_seconds', 1800),
+                'telegram_user_traffic_alert_enable' => (bool) admin_setting('telegram_user_traffic_alert_enable', 1),
+                'telegram_user_traffic_threshold' => (int) admin_setting('telegram_user_traffic_threshold', 95),
+                ];
+            },
+            'app' => function (): array {
+                return [
+                'windows_version' => admin_setting('windows_version', ''),
+                'windows_download_url' => admin_setting('windows_download_url', ''),
+                'macos_version' => admin_setting('macos_version', ''),
+                'macos_download_url' => admin_setting('macos_download_url', ''),
+                'android_version' => admin_setting('android_version', ''),
+                'android_download_url' => admin_setting('android_download_url', '')
+                ];
+            },
+            'safe' => function (): array {
+                return [
+                'email_verify' => (bool) admin_setting('email_verify', 0),
+                'safe_mode_enable' => (bool) admin_setting('safe_mode_enable', 0),
+                'secure_path' => admin_setting('secure_path', admin_setting('frontend_admin_path', hash('crc32b', config('app.key')))),
+                'frontend_user_path' => admin_setting('frontend_user_path', 'user'),
+                'homepage_mode' => admin_setting('homepage_mode', 'monitor'),
+                'user_frontend_enable' => (bool) admin_setting('user_frontend_enable', 1),
+                'public_status_enable' => (bool) admin_setting('public_status_enable', 1),
+                'google_login_enable' => (bool) admin_setting('google_login_enable', 0),
+                'google_client_id' => admin_setting('google_client_id', ''),
+                'google_client_secret' => admin_setting('google_client_secret', ''),
+                'google_redirect_uri' => admin_setting('google_redirect_uri', ''),
+                'email_whitelist_enable' => (bool) admin_setting('email_whitelist_enable', 0),
+                'email_whitelist_suffix' => admin_setting('email_whitelist_suffix', Dict::EMAIL_WHITELIST_SUFFIX_DEFAULT),
+                'email_gmail_limit_enable' => (bool) admin_setting('email_gmail_limit_enable', 0),
+                'captcha_enable' => (bool) admin_setting('captcha_enable', 0),
+                'captcha_type' => admin_setting('captcha_type', 'recaptcha'),
+                'recaptcha_key' => admin_setting('recaptcha_key', ''),
+                'recaptcha_site_key' => admin_setting('recaptcha_site_key', ''),
+                'recaptcha_v3_secret_key' => admin_setting('recaptcha_v3_secret_key', ''),
+                'recaptcha_v3_site_key' => admin_setting('recaptcha_v3_site_key', ''),
+                'recaptcha_v3_score_threshold' => admin_setting('recaptcha_v3_score_threshold', 0.5),
+                'turnstile_secret_key' => admin_setting('turnstile_secret_key', ''),
+                'turnstile_site_key' => admin_setting('turnstile_site_key', ''),
+                'register_limit_by_ip_enable' => (bool) admin_setting('register_limit_by_ip_enable', 0),
+                'register_limit_count' => admin_setting('register_limit_count', 3),
+                'register_limit_expire' => admin_setting('register_limit_expire', 60),
+                'password_limit_enable' => (bool) admin_setting('password_limit_enable', 1),
+                'password_limit_count' => admin_setting('password_limit_count', 5),
+                'password_limit_expire' => admin_setting('password_limit_expire', 60),
+                // 保持向后兼容
+                'recaptcha_enable' => (bool) admin_setting('captcha_enable', 0)
+                ];
+            },
+            'subscribe_template' => function (): array {
+                return [
+                'subscribe_template_singbox' => $this->formatTemplateContent(
+                    subscribe_template('singbox') ?? '',
+                    'json'
+                ),
+                'subscribe_template_clash' => subscribe_template('clash') ?? '',
+                'subscribe_template_clashmeta' => subscribe_template('clashmeta') ?? '',
+                'subscribe_template_clashverge' => subscribe_template('clashverge') ?? '',
+                'subscribe_template_stash' => subscribe_template('stash') ?? '',
+                'subscribe_template_surge' => subscribe_template('surge') ?? '',
+                'subscribe_template_surfboard' => subscribe_template('surfboard') ?? '',
+                'subscribe_rule_files' => SubscribeTemplate::getRuleFiles(),
+                ];
+            },
+            'backup' => function (): array {
+                return [
+                'backup_enable' => (bool) admin_setting('backup_enable', false),
+                'backup_type' => admin_setting('backup_type', 'database'),
+                'backup_storage' => $this->resolveBackupStorage(),
+                'backup_frequency' => admin_setting('backup_frequency', 'daily'),
+                'backup_time' => admin_setting('backup_time', '03:30'),
+                'backup_local_path' => admin_setting('backup_local_path', ''),
+                'backup_remote' => admin_setting('backup_remote', ''),
+                'backup_keep_days' => (int) admin_setting('backup_keep_days', 14),
+                'backup_password' => admin_setting('backup_password', ''),
+                ];
+            },
+        ];
+
+        if ($key !== null) {
+            return isset($factories[$key]) ? [$key => $factories[$key]()] : [];
+        }
+
+        $mappings = [];
+        foreach ($factories as $mappingKey => $factory) {
+            $mappings[$mappingKey] = $factory();
+        }
+        return $mappings;
+    }
+
+    public function save(ConfigSave $request)
+    {
+        $data = app(AdminSettingSecrets::class)->prepareChanges($request->validated());
+
+        $templateKeys = [
+            'subscribe_template_singbox' => 'singbox',
+            'subscribe_template_clash' => 'clash',
+            'subscribe_template_clashmeta' => 'clashmeta',
+            'subscribe_template_clashverge' => 'clashverge',
+            'subscribe_template_stash' => 'stash',
+            'subscribe_template_surge' => 'surge',
+            'subscribe_template_surfboard' => 'surfboard',
+        ];
+
+        $settings = [];
+        $templates = [];
+        foreach ($data as $k => $v) {
+            if ($k === 'subscribe_rule_files') continue;
+            if (isset($templateKeys[$k])) {
+                $templates[$templateKeys[$k]] = $v;
+                continue;
+            }
+            $settings[$k] = $v;
+        }
+        try {
+            $files = SubscribeTemplate::filesForSave($templates, (array) ($data['subscribe_rule_files'] ?? []));
+            if (isset($settings['frontend_theme'])) {
+                app(XboardThemeService::class)->addSwitchFiles($settings['frontend_theme'], $files);
+                $settings['current_theme'] = $settings['frontend_theme'];
+            }
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail([422, $e->getMessage()]);
+        }
+        app(AdminSettingsWriter::class)->update(function (array $latest) use ($settings, $files) {
+            $appearance = [];
+            foreach (['frontend_theme_color' => 'theme_color', 'frontend_theme_sidebar' => 'theme_sidebar',
+                'frontend_theme_header' => 'theme_header', 'frontend_background_url' => 'background_url'] as $key => $field) {
+                if (array_key_exists($key, $settings)) $appearance[$field] = $settings[$key] ?? '';
+            }
+            if ($appearance !== []) {
+                $theme = (string) ($settings['frontend_theme'] ?? $latest['frontend_theme'] ?? 'default');
+                $settings['theme_' . $theme] = app(XboardThemeService::class)->addConfigurationFiles($theme, $appearance, $latest, $files);
+            }
+            return [$settings, $files];
+        });
+        if (array_intersect(array_keys($settings), ['frontend_user_path', 'secure_path', 'subscribe_path'])) Artisan::call('route:clear');
+
+        return $this->success(true);
+    }
+
+    private function resolveBackupStorage(): string
+    {
+        $storage = (string) admin_setting('backup_storage', '');
+        if (in_array($storage, ['local', 'google_drive', 'rclone'], true)) {
+            return $storage;
+        }
+
+        return trim((string) admin_setting('backup_remote', '')) !== '' ? 'rclone' : 'local';
+    }
+
+    /**
+     * 格式化模板内容
+     * 
+     * @param mixed $content 模板内容
+     * @param string $format 输出格式 (json|string)
+     * @return string 格式化后的内容
+     */
+    private function formatTemplateContent($content, string $format = 'string'): string
+    {
+        if ($format === 'json') {
+            if (is_array($content)) {
+                return json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            if (is_string($content)) {
+                json_decode($content);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    return json_encode(json_decode($content, true), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                }
+            }
+        }
+        return (string)$content;
+    }
+
+    private function getTelegramWebhookBaseUrl(): ?string
+    {
+        $customUrl = trim((string) admin_setting('telegram_webhook_url', ''));
+        if ($customUrl !== '') {
+            return rtrim($customUrl, '/');
+        }
+
+        $appUrl = trim((string) admin_setting('app_url', ''));
+        if ($appUrl !== '') {
+            return rtrim($appUrl, '/');
+        }
+
+        return null;
+    }
+
+    private function resolveTelegramWebhookUrl(): ?string
+    {
+        $baseUrl = $this->getTelegramWebhookBaseUrl();
+        if (!$baseUrl) {
+            return null;
+        }
+
+        if (str_contains($baseUrl, '/api/v1/guest/telegram/webhook')) {
+            return $baseUrl;
+        }
+
+        return $baseUrl . '/api/v1/guest/telegram/webhook';
+    }
+}

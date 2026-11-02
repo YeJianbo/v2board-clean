@@ -1,0 +1,1 @@
+.el-dialog.gift-card-dialog{flex-direction:column;max-height:calc(100dvh - 32px);display:flex}.el-dialog.gift-card-dialog .el-dialog__body{flex:1;min-height:0;overflow:auto}.el-dialog.gift-card-dialog .el-dialog__header,.el-dialog.gift-card-dialog .el-dialog__footer{flex-shrink:0}

@@ -1,0 +1,1 @@
+function e(e,t,n){let r={...e};for(let[i,a]of Object.entries(n))JSON.stringify(e[i])===JSON.stringify(t[i])&&(r[i]=a);return r}export{e as t};

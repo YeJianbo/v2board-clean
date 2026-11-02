@@ -1,0 +1,94 @@
+<?php
+
+namespace App\Http\Controllers\V1\Server;
+
+use App\Http\Controllers\Controller;
+use App\Models\ServerShadowsocks;
+use App\Services\ServerService;
+use App\Services\UserService;
+use App\Utils\CacheKey;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+/*
+ * Tidal Lab Shadowsocks
+ * Github: https://github.com/tokumeikoi/tidalab-ss
+ */
+class ShadowsocksTidalabController extends Controller
+{
+    private function panelSetting(string $key, $default = null)
+    {
+        $configValue = config('v2board.' . $key);
+        if ($configValue !== null && $configValue !== '') {
+            return $configValue;
+        }
+
+        $dbValue = DB::table('v2_settings')->where('name', $key)->value('value');
+        if ($dbValue !== null && $dbValue !== '') {
+            return $dbValue;
+        }
+
+        return $default;
+    }
+
+    public function __construct(Request $request)
+    {
+        $token = \App\Services\MachineNodeAuthService::token($request);
+        if (empty($token)) {
+            abort(500, 'token is null');
+        }
+        \App\Services\MachineNodeAuthService::authorize($request, ServerShadowsocks::find($request->input('node_id')), (string) $this->panelSetting('server_token', ''));
+    }
+
+    // 后端获取用户
+    public function user(Request $request)
+    {
+        ini_set('memory_limit', -1);
+        $nodeId = $request->input('node_id');
+        $server = ServerShadowsocks::find($nodeId);
+        if (!$server) {
+            abort(500, 'fail');
+        }
+        Cache::put(CacheKey::get('SERVER_SHADOWSOCKS_LAST_CHECK_AT', $server->id), time(), 3600);
+        $serverService = new ServerService();
+        $users = $serverService->getAvailableUsers($server->group_id);
+        $result = [];
+        foreach ($users as $user) {
+            array_push($result, [
+                'id' => $user->id,
+                'port' => $server->server_port,
+                'cipher' => $server->cipher,
+                'secret' => $user->uuid
+            ]);
+        }
+        $eTag = sha1(json_encode($result));
+        if (strpos($request->header('If-None-Match'), $eTag) !== false ) {
+            abort(304);
+        }
+        return response([
+            'data' => $result
+        ])->header('ETag', "\"{$eTag}\"");
+    }
+
+    // 后端提交数据
+    public function submit(Request $request)
+    {
+        $server = ServerShadowsocks::find($request->input('node_id'));
+        if (!$server) {
+            return response([
+                'ret' => 0,
+                'msg' => 'server is not found'
+            ]);
+        }
+        $data = \App\Support\TrafficReport::read($request);
+        $formatData = \App\Support\TrafficReport::fromRows($data);
+        $userService = new UserService();
+        $userService->trafficFetch($server->toArray(), 'shadowsocks', $formatData);
+
+        return response([
+            'ret' => 1,
+            'msg' => 'ok'
+        ]);
+    }
+}

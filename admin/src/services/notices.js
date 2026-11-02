@@ -1,0 +1,170 @@
+import {
+  buildSecureV2ApiUrl,
+  requestDashboardApi,
+  requestDashboardMutation,
+} from './api'
+import { formatTimestamp } from '../utils/format'
+
+export function createEmptyManagedNotices() {
+  return []
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function createExcerpt(plainContent) {
+  if (!plainContent) {
+    return '--'
+  }
+
+  if (plainContent.length <= 110) {
+    return plainContent
+  }
+
+  return `${plainContent.slice(0, 110)}...`
+}
+
+function resolveNoticeShow(value) {
+  if (value === true || value === false) {
+    return value
+  }
+
+  if (value === 1 || value === '1' || value === 'true') {
+    return true
+  }
+
+  if (value === 0 || value === '0' || value === 'false') {
+    return false
+  }
+
+  return false
+}
+
+function normalizeNotice(notice, index) {
+  const tags = Array.isArray(notice?.tags)
+    ? notice.tags
+        .map(function mapTag(tag) {
+          return String(tag || '').trim()
+        })
+        .filter(Boolean)
+    : []
+  const show = resolveNoticeShow(notice?.show)
+  const plainContent = stripHtml(notice?.content)
+  const sortValue =
+    notice?.sort === null || notice?.sort === undefined || notice?.sort === ''
+      ? null
+      : Number(notice.sort)
+
+  return {
+    id: Number(notice?.id || index + 1),
+    sort: Number.isFinite(sortValue) ? sortValue : null,
+    title: String(notice?.title || `公告 ${index + 1}`).trim(),
+    content: String(notice?.content || ''),
+    plainContent,
+    excerpt: createExcerpt(plainContent),
+    show,
+    showUpdating: false,
+    statusLabel: show ? '展示中' : '已隐藏',
+    imgUrl: String(notice?.img_url || '').trim(),
+    hasImage: Boolean(notice?.img_url),
+    tags,
+    createdAt: formatTimestamp(notice?.created_at),
+    createdAtRaw: Number(notice?.created_at || 0),
+    updatedAt: formatTimestamp(notice?.updated_at),
+    updatedAtRaw: Number(notice?.updated_at || 0),
+  }
+}
+
+export async function fetchManagedNotices(options = {}) {
+  const apiUrl = buildSecureV2ApiUrl('notice/fetch')
+  const payload = await requestDashboardApi(apiUrl, options)
+  const list = payload?.data
+  if (!Array.isArray(list) || list.some(notice => !notice || !Number.isInteger(Number(notice.id)) || Number(notice.id) <= 0)) {
+    throw new Error('公告列表数据格式异常，请刷新重试')
+  }
+
+  return list.map(function mapNotice(notice, index) {
+    return normalizeNotice(notice, index)
+  })
+}
+
+export async function toggleManagedNoticeShow(id, show) {
+  const noticeId = Number(id || 0)
+
+  if (!noticeId) {
+    throw new Error('缺少公告ID')
+  }
+
+  const apiUrl = buildSecureV2ApiUrl('notice/show')
+  const payload = { id: noticeId }
+  if (typeof show === 'boolean') payload.show = show ? 1 : 0
+  await requestDashboardMutation(apiUrl, payload)
+}
+
+export async function saveManagedNotice(payload = {}) {
+  const title = String(payload.title || '').trim()
+  const content = String(payload.content || '').trim()
+
+  if (!title) {
+    throw new Error('公告标题不能为空')
+  }
+
+  if (!content) {
+    throw new Error('公告内容不能为空')
+  }
+
+  const apiUrl = buildSecureV2ApiUrl('notice/save')
+  // 与其它 service（payment/knowledge/users）保持一致用 1/0；之前发 boolean 让
+  // 部分后端把字面量 "true"/"false" 当字符串存进 DB。
+  const requestPayload = {
+    title,
+    content,
+    show: payload.show ? 1 : 0,
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    img_url: payload.imgUrl ? String(payload.imgUrl).trim() : null,
+  }
+
+  if (payload.id) {
+    requestPayload.id = Number(payload.id)
+  }
+
+  if (payload.sort !== null && payload.sort !== undefined && payload.sort !== '') {
+    requestPayload.sort = Number(payload.sort)
+  }
+
+  await requestDashboardMutation(apiUrl, requestPayload)
+}
+
+export async function deleteManagedNotice(id) {
+  const noticeId = Number(id || 0)
+
+  if (!noticeId) {
+    throw new Error('缺少公告ID')
+  }
+
+  const apiUrl = buildSecureV2ApiUrl('notice/drop')
+  await requestDashboardMutation(apiUrl, {
+    id: noticeId,
+  })
+}
+
+export async function sortManagedNotices(ids) {
+  const apiUrl = buildSecureV2ApiUrl('notice/sort')
+  await requestDashboardMutation(apiUrl, {
+    ids: ids.map(function mapId(id) {
+      return Number(id)
+    }),
+  })
+}
