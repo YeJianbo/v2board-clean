@@ -1,6 +1,8 @@
 # V2Board Panel
 
-This repository contains a Laravel panel in `backend/` and the Vue administration interface in `admin/`. The project is distributed under the MIT license in `backend/LICENSE`.
+This repository contains a Laravel panel in `backend/` and the Vue administration interface in `admin/`.
+
+The backend is derived from [v2board/v2board](https://github.com/v2board/v2board) and retains its MIT license and copyright notice in `backend/LICENSE`. The administration interface is derived from [Shannon-x/XBoard-admin](https://github.com/Shannon-x/XBoard-admin); its upstream repository does not currently declare a license, so the backend's MIT license should not be assumed to cover that interface.
 
 ## Administration Interface
 
